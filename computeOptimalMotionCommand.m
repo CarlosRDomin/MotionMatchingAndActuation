@@ -3,7 +3,7 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 close all; clear all;
-cdToWorkingDirectory;
+cdToThisScriptsDirectory;
 
 N = 5;
 M = N;
@@ -21,8 +21,8 @@ scatterCoordLim = 5;
 scatterView = [10, 15];	% degrees of azimuth (theta) and elevation (pi/2-phi)
 
 tMax = 10; t = 0:deltaT/pointsPerIter:tMax; runningCorrWinSizes = pointsPerIter; iW=1;
-yCam = cat(2, zeros(M, 1, length(dims)), NaN(M, length(t)-1, length(dims)));
-yUAV = cat(2, zeros(N, 1, length(dims)), NaN(N, length(t)-1, length(dims)));
+accelCam = cat(2, zeros(M, 1, length(dims)), NaN(M, length(t)-1, length(dims)));
+accelUAV = cat(2, zeros(N, 1, length(dims)), NaN(N, length(t)-1, length(dims)));
 posUAVgt = cat(2, randn(N, 1, length(dims)), NaN(N, length(t)-1, length(dims)));
 posUAVcam = posUAVgt;
 runningWinScore = cat(3, zeros(N, M, 1, length(dims), length(runningCorrWinSizes)), NaN(N, M, length(t)-1, length(dims), length(runningCorrWinSizes)));
@@ -66,12 +66,12 @@ for currT = 0:deltaT:(tMax-deltaT)
 	dispImproved(sprintf('@t=%2d - Sending motion command:\nrho:\t%s\ntheta:\t%s\nphi:\t%s\n', currT, num2str(command(1:3:end)','%8.2f'), num2str(rad2deg(command(2:3:end))','%7.1f?'), num2str(rad2deg(command(3:3:end))','%7.1f?')), 'keepthis');
 	[a,~,p] = predictPosVelAccelFromCommand(command(1:3:end), command(2:3:end), command(3:3:end)); a=permute(a,3:-1:1); p=permute(p,3:-1:1);
 	posUAVgt(:,currTind+(1:pointsPerIter),:) = posUAVgt(:,currTind,:) + sigmaNoisePos.*randn(N,pointsPerIter,length(dims));
-	yUAV(:,currTind+(1:pointsPerIter),:) = sigmaNoiseAccel.*randn(N,pointsPerIter,length(dims));
-	yCam(:,currTind+(1:pointsPerIter),:) = sigmaNoiseAccel.*randn(M,pointsPerIter,length(dims));
+	accelUAV(:,currTind+(1:pointsPerIter),:) = sigmaNoiseAccel.*randn(N,pointsPerIter,length(dims));
+	accelCam(:,currTind+(1:pointsPerIter),:) = sigmaNoiseAccel.*randn(M,pointsPerIter,length(dims));
 	posUAVgt(groundTruthAssignment,currTind+(1:pointsPerIter),:) = posUAVgt(groundTruthAssignment,currTind+(1:pointsPerIter),:) +p(groundTruthAssignment,:,:);
-	yUAV(:,currTind+(1:pointsPerIter),:) = yUAV(:,currTind+(1:pointsPerIter),:) + a;
-	yCam(:,currTind+(1:pointsPerIter),:) = yCam(:,currTind+(1:pointsPerIter),:) + a(groundTruthAssignment,:,:);
-	[runningWinScore, runningLikelihood, runningPrior, assignedMatch] = computeBayesianIteration(runningWinScore, runningLikelihood, runningPrior, assignedMatch, yCam, yUAV, currTind+pointsPerIter-1, dims, runningCorrWinSizes, N, M);
+	accelUAV(:,currTind+(1:pointsPerIter),:) = accelUAV(:,currTind+(1:pointsPerIter),:) + a;
+	accelCam(:,currTind+(1:pointsPerIter),:) = accelCam(:,currTind+(1:pointsPerIter),:) + a(groundTruthAssignment,:,:);
+	[runningWinScore, runningLikelihood, runningPrior, assignedMatch] = computeBayesianIteration(runningWinScore, runningLikelihood, runningPrior, assignedMatch, accelCam, accelUAV, currTind+pointsPerIter-1, dims, runningCorrWinSizes, N, M);
 	dispImproved(sprintf('\nPosterior likelihood:\n%s%s\n', [num2str(100.*runningPrior(:,:,currTind+pointsPerIter,iW), '%8.2f')'; repmat(13,1,N)], repmat('-',1,50)), 'keepthis');
 	
 	figure('Units','normalized', 'Position',[0.3 0.4 0.4 0.2]); colormap('jet'); hold on;
@@ -81,10 +81,10 @@ end
 %%
 runningPrior(:,:,2,:) = runningPrior(:,:,1,:);
 for currT = 2:length(t)-1	% Fill in the gaps
-	[runningWinScore, runningLikelihood, runningPrior, assignedMatch] = computeBayesianIteration(runningWinScore, runningLikelihood, runningPrior, assignedMatch, yCam, yUAV, currT, dims, runningCorrWinSizes, N, M);
+	[runningWinScore, runningLikelihood, runningPrior, assignedMatch] = computeBayesianIteration(runningWinScore, runningLikelihood, runningPrior, assignedMatch, accelCam, accelUAV, currT, dims, runningCorrWinSizes, N, M);
 end
 %%
-outFields = {'runningWinScore','runningLikelihood','runningPrior','assignedMatch','N','M','iCams','dims','runningCorrWinSizes','cropToMinT','t','yCam','yUAV','posUAVgt','groundTruthAssignment','pointsPerIter','deltaP','deltaT','sigmaNoiseCam','sigmaNoisePos','sigmaNoiseAccel'};
+outFields = {'runningWinScore','runningLikelihood','runningPrior','assignedMatch','N','M','iCams','dims','runningCorrWinSizes','cropToMinT','t','accelCam','accelUAV','posUAVgt','groundTruthAssignment','pointsPerIter','deltaP','deltaT','sigmaNoiseCam','sigmaNoisePos','sigmaNoiseAccel'};
 runningCorrStruct = cell2struct(cell(1, length(outFields)), outFields, 2);
 iCams=1:M; cropToMinT=false;
 for f = outFields	% Populate output struct with results

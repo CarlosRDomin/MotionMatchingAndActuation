@@ -3,6 +3,6 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 close all;
-cdToWorkingDirectory;
+cdToThisScriptsDirectory;
 
-runningCorrStruct = plotExperimentResults([], struct('rawAccel',false, 'scatterCorr',false, 'runningLikelihoodVsWinSize',true, 'runningLikelihoodFull',true));
+runningCorrStruct = plotExperimentResults([], struct('rawAccel',false, 'scatterCorr',false, 'runningLikelihoodVsWinSize',false, 'runningLikelihoodFull',true));

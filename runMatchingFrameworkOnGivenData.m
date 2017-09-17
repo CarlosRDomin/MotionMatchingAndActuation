@@ -16,7 +16,7 @@ function out = runMatchingFrameworkOnGivenData(data, iUAVs, iCams, runningCorrWi
 		dims = 1:3;
 	end
 	if nargin<6 || isempty(cropToMinT)
-		cropToMinT = false;
+		cropToMinT = true;
 	end
 	if nargin<7 || isempty(maxExperimentTime)
 		maxExperimentTime = NaN;
@@ -36,14 +36,14 @@ function out = runMatchingFrameworkOnGivenData(data, iUAVs, iCams, runningCorrWi
 	if cropToMinT, t = tMinT; else, t = tMaxT; end	% If requested, crop all signals to the shortest signal. Otherwise, zero-pad all signals to the longest signal
 	if ~isnan(maxExperimentTime), t(t>maxExperimentTime)=[]; end	% If requested, limit the maximum experiment time
 	
-	outFields = {'runningWinScore','runningLikelihood','runningPrior','assignedMatch','N','M','iCams','dims','runningCorrWinSizes','cropToMinT','t','yCam','yUAV'};
+	outFields = {'runningWinScore','runningLikelihood','runningPrior','assignedMatch','N','M','iCams','dims','runningCorrWinSizes','cropToMinT','t','accelCam','accelUAV'};
 	out = cell2struct(cell(1, length(outFields)), outFields, 2);
 	%%% t = zeros(M, lenT, length(dims));
-	yCam = NaN(M, length(t), length(dims));
-	yUAV = NaN(N, length(t), length(dims));
+	accelCam = NaN(M, length(t), length(dims));
+	accelUAV = NaN(N, length(t), length(dims));
 	runningWinScore = NaN(N, M, length(t), length(dims), length(runningCorrWinSizes));
 	runningLikelihood = NaN(N, M, length(t), length(runningCorrWinSizes));
-	runningPrior = cat(3, ones(N, M, 2, length(runningCorrWinSizes))./(N+M-1), NaN(N, M, length(t)-1, length(runningCorrWinSizes)));
+	runningPrior = cat(3, ones(N, M, 2, length(runningCorrWinSizes))./(N), NaN(N, M, length(t)-1, length(runningCorrWinSizes)));
 	assignedMatch = NaN(N, length(t), length(runningCorrWinSizes));
 	
 	for iD = dims
@@ -51,17 +51,17 @@ function out = runMatchingFrameworkOnGivenData(data, iUAVs, iCams, runningCorrWi
 		strAx = char('X'+d-1);	% Letter representation of the dimension ('X', 'Y', 'Z')
 		for iC = 1:M
 			iCam = iCams(iC);
-			yCam(iC,:,iD) = interp1(data(iCam).a_cam.(strAx).t, data(iCam).a_cam.(strAx).measured, t);
+			accelCam(iC,:,iD) = interp1(data(iCam).a_cam.(strAx).t, data(iCam).a_cam.(strAx).measured, t);
 		end
 		for iU = 1:N
 			iUAV = iUAVs(iU);
-			yUAV(iU,:,iD) = interp1(data(iUAV).a_UAV.(strAx).t, data(iUAV).a_UAV.(strAx).measured, t);
+			accelUAV(iU,:,iD) = interp1(data(iUAV).a_UAV.(strAx).t, data(iUAV).a_UAV.(strAx).measured, t);
 		end
 	end
 
 	dispImproved('', 'init'); dispImproved('Computing stats... ', 'keepthis');
 	for currT = 2:length(t)
-		[runningWinScore, runningLikelihood, runningPrior, assignedMatch] = computeBayesianIteration(runningWinScore, runningLikelihood, runningPrior, assignedMatch, yCam, yUAV, currT, dims, runningCorrWinSizes, N, M);
+		[runningWinScore, runningLikelihood, runningPrior, assignedMatch] = computeBayesianIteration(runningWinScore, runningLikelihood, runningPrior, assignedMatch, accelCam, accelUAV, currT, dims, runningCorrWinSizes, N, M);
 		dispImproved(sprintf('t=%6.2fs; %6.2f%% (%d out of %d)\n', t(currT), 100*currT/length(t), currT, length(t)));
 	end
 	for f = outFields	% Populate output struct with results

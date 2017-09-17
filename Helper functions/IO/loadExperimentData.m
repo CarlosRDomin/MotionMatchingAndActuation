@@ -3,10 +3,9 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 function data = loadExperimentData(logInfo, logFolder)
-    includeScripts; % Inlude readNPZ scripts
     magnitudes = {'X'; 'Y'; 'Z'};
     if nargin < 2 || isempty(logFolder)
-        logFolder = '../../data/Real';
+        logFolder = [fileparts(mfilename('fullpath')) '/../../data/Real'];
     end
     
     data = repmat(cell2struct([repmat({cell2struct(cell(3,1), magnitudes)}, 6,1); cell(2,1)], {'a_cam','a_UAV','gyro_UAV','a_cam_orig','a_UAV_orig','gyro_UAV_orig', 'tInterv', 'tCropInds'}), length({logInfo.datetime}), 1);

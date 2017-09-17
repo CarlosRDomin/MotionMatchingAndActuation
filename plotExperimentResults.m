@@ -3,6 +3,8 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 function [runningCorrStruct] = plotExperimentResults(runningCorrStruct, whatToPlot, data)
+	cdToThisScriptsDirectory;
+
 	%% Load parameters / default values
 	if nargin<1 || isempty(runningCorrStruct)
 		try
@@ -20,7 +22,7 @@ function [runningCorrStruct] = plotExperimentResults(runningCorrStruct, whatToPl
 				%data = loadExperimentData(struct('datetime',{'2017-02-19 17-14-15','2017-02-19 17-56-48','2017-02-19 17-59-23','2017-02-19 18-01-29','2017-02-19 18-22-23','2017-02-19 18-24-25'}, 'ch','75'));
 				data = loadExperimentData(struct('datetime',{'2017-02-19 17-56-48','2017-02-19 17-59-23','2017-02-19 18-01-29','2017-02-19 18-22-23','2017-02-19 18-24-25'}, 'ch','75'));
 			end
-			runningCorrStruct = runMatchingFrameworkOnGivenData(data, [1 2 3], [1 2 4], [5:5:15 30:30:300]);	%(data, iCam=1:length(data), runningCorrWinSizes, dims=1:3, cropToMinT=true)
+			runningCorrStruct = runMatchingFrameworkOnGivenData(data, [1 2 3], [1 2 3 4 5], [5:5:15 30:30:300]);	%(data, iCam=1:length(data), runningCorrWinSizes, dims=1:3, cropToMinT=true)
 			save('runningCorrStruct.mat','runningCorrStruct');
 		end
 	end
@@ -41,9 +43,9 @@ function [runningCorrStruct] = plotExperimentResults(runningCorrStruct, whatToPl
 				strAx = char('X'+d-1);			% Letter representation of the dimension ('X', 'Y', 'Z')
 				ax(iUAV, iD) = subplot(runningCorrStruct.N,length(runningCorrStruct.dims), iD + (iUAV-1)*length(runningCorrStruct.dims)); hold on;
 				if any(runningCorrStruct.iCams == iUAV)
-					hCam = plot(runningCorrStruct.t, runningCorrStruct.yCam(runningCorrStruct.iCams==iUAV,:,d), 'LineWidth',2);
+					hCam = plot(runningCorrStruct.t, runningCorrStruct.accelCam(runningCorrStruct.iCams==iUAV,:,d), 'LineWidth',2);
 				end
-				hUAV = plot(runningCorrStruct.t, runningCorrStruct.yUAV(iUAV,:,d)-mean(runningCorrStruct.yUAV(iUAV,:,d), 'omitnan'), '-', 'LineWidth',2, 'Color',[0.83,0,0.1]);
+				hUAV = plot(runningCorrStruct.t, runningCorrStruct.accelUAV(iUAV,:,d)-mean(runningCorrStruct.accelUAV(iUAV,:,d), 'omitnan'), '-', 'LineWidth',2, 'Color',[0.83,0,0.1]);
 				xlim([0 runningCorrStruct.t(end)]); % ylim([-1.1,1.1]); set(gca,'YTick',-1:0.5:1);
 				box('on'); set(gca, 'FontSize',14);
 				if iD==1, ylabel(['UAV #' num2str(iUAV)], 'FontSize',18); end
@@ -66,7 +68,7 @@ function [runningCorrStruct] = plotExperimentResults(runningCorrStruct, whatToPl
 				iCam = runningCorrStruct.iCams(iC);
 				for iUAV = 1:runningCorrStruct.N	% For each experiment
 					ax(iUAV, iC) = subplot(runningCorrStruct.N,runningCorrStruct.M, iC + (iUAV-1)*runningCorrStruct.M); hold on;
-					x=runningCorrStruct.yCam(iCam,:,d); y=runningCorrStruct.yUAV(iUAV,:,d);
+					x=runningCorrStruct.accelCam(iCam,:,d); y=runningCorrStruct.accelUAV(iUAV,:,d);
 					inds = union(find(isnan(x)), find(isnan(y))); x(inds)=[]; y(inds)=[];
 					fitCoeffs = polyfit(x, y, 1);	% Fit a line (poly of degree 1)
 					fitX = [min(x), max(x)]; fitY = polyval(fitCoeffs, fitX);
@@ -91,7 +93,7 @@ function [runningCorrStruct] = plotExperimentResults(runningCorrStruct, whatToPl
 			for iUAV = 1:runningCorrStruct.N	% For each experiment
 				ax(iUAV, iC) = subplot(runningCorrStruct.N,runningCorrStruct.M, iC + (iUAV-1)*runningCorrStruct.M); hold on;
 
-				bgndNaNinds = any(isnan(runningCorrStruct.yCam(iC,:,:)),3); startInd = 100; bgndNaNinds(1:startInd-1) = true;
+				bgndNaNinds = any(isnan(runningCorrStruct.accelCam(iC,:,:)),3); startInd = 100; bgndNaNinds(1:startInd-1) = true;
 				bgndT = runningCorrStruct.t(~bgndNaNinds);
 				bgndY = [-5 5]; bgndY = [bgndY fliplr(bgndY)]';	% eg: [0 1 1 0]' if ylim is [0 1]
 
@@ -101,12 +103,14 @@ function [runningCorrStruct] = plotExperimentResults(runningCorrStruct, whatToPl
 					fillValues(bgndNaNinds(startInd:end-1)) = [];
 					if iUAV == iCam, fprintf('Accuracy for cam #%d with a window size of %d points (%.2f s):\t%.2f%%\n', iCam, w, w*mean(diff(runningCorrStruct.t)), 100*sum(fillValues)/length(fillValues)); end
 
-% 					for iD = 1:length(runningCorrStruct.dims)
-% 						d = runningCorrStruct.dims(iD);			% For each dimension (e.g. z)
-% 						strAx = char('X'+d-1);					% Letter representation of the dimension ('X', 'Y', 'Z')
-% 						hRunningCorr = plot(runningCorrStruct.t, squeeze(runningCorrStruct.runningWinScore(iUAV,iC,:,iD,iW)), 'LineWidth',2);
-% 					end
-% 					hRunningCorr = plot(runningCorrStruct.t, squeeze(prod(runningCorrStruct.runningWinScore(iUAV,iC,:,:,iW),4)), 'LineWidth',2);
+					if false % Would print the running score for each window size
+						for iD = 1:length(runningCorrStruct.dims)
+							d = runningCorrStruct.dims(iD);			% For each dimension (e.g. z)
+							strAx = char('X'+d-1);					% Letter representation of the dimension ('X', 'Y', 'Z')
+							hRunningCorr = plot(runningCorrStruct.t, squeeze(runningCorrStruct.runningWinScore(iUAV,iC,:,iD,iW)), 'LineWidth',2);
+						end
+						hRunningCorr = plot(runningCorrStruct.t, squeeze(prod(runningCorrStruct.runningWinScore(iUAV,iC,:,:,iW),4)), 'LineWidth',2);
+					end
 					hRunningCorr = plot(runningCorrStruct.t, squeeze(runningCorrStruct.runningPrior(iUAV,iC,2:end,iW)), 'LineWidth',2);
 				end
 				% Let's combine contiguous patches with same fillValue together
@@ -148,7 +152,7 @@ function [runningCorrStruct] = plotExperimentResults(runningCorrStruct, whatToPl
 			for iUAV = 1:runningCorrStruct.N	% For each experiment
 				ax(iUAV, iC) = subplot(runningCorrStruct.N,runningCorrStruct.M, iC + (iUAV-1)*runningCorrStruct.M); hold on;
 
-				bgndNaNinds = any(isnan(runningCorrStruct.yCam(iC,:,:)),3); startInd = 2; bgndNaNinds(1:startInd-1) = true;
+				bgndNaNinds = any(isnan(runningCorrStruct.accelCam(iC,:,:)),3); startInd = 2; bgndNaNinds(1:startInd-1) = true;
 				bgndT = runningCorrStruct.t(~bgndNaNinds);
 				bgndY = [-5 5]; bgndY = [bgndY fliplr(bgndY)]';	% eg: [0 1 1 0]' if ylim is [0 1]
 
@@ -158,15 +162,16 @@ function [runningCorrStruct] = plotExperimentResults(runningCorrStruct, whatToPl
 					fillValues(bgndNaNinds(startInd:end-1)) = [];
 					if iUAV == iCam, fprintf('Accuracy for cam #%d with a window size of %d points (%.2f s):\t%.2f%%\n', iCam, w, w*mean(diff(runningCorrStruct.t)), 100*sum(fillValues)/length(fillValues)); end
 
-					%hCam = plot(runningCorrStruct.t, runningCorrStruct.yCam(iC,:,d), 'LineWidth',2);
-					%hUAV = plot(runningCorrStruct.t, runningCorrStruct.yUAV(iUAV,:,d), '-', 'LineWidth',2, 'Color',[0.83,0,0.1]);
+					%hCam = plot(runningCorrStruct.t, runningCorrStruct.accelCam(iC,:,d), 'LineWidth',2);
+					%hUAV = plot(runningCorrStruct.t, runningCorrStruct.accelUAV(iUAV,:,d), '-', 'LineWidth',2, 'Color',[0.83,0,0.1]);
 					for iD = 3 %%1:length(runningCorrStruct.dims)
 						d = runningCorrStruct.dims(iD);			% For each dimension (e.g. z)
 						strAx = char('X'+d-1);					% Letter representation of the dimension ('X', 'Y', 'Z')
 						hRunningCorr = plot(runningCorrStruct.t, squeeze(runningCorrStruct.runningWinScore(iUAV,iC,:,iD,iW)), 'LineWidth',2);
 					end
-					%%hRunningCorr = plot(runningCorrStruct.t, squeeze(prod(runningCorrStruct.runningWinScore(iUAV,iC,:,:,iW),4)), 'LineWidth',2);
-					%%hRunningLikelihood = plot(runningCorrStruct.t, squeeze(runningCorrStruct.runningLikelihood(iUAV,iC,:,iW)), 'LineWidth',2);
+					%hRunningCorr = plot(runningCorrStruct.t, squeeze(prod(runningCorrStruct.runningWinScore(iUAV,iC,:,:,iW),4)), 'LineWidth',2);
+					%hRunningLikelihood = plot(runningCorrStruct.t, squeeze(runningCorrStruct.runningLikelihood(iUAV,iC,:,iW)), 'LineWidth',2);
+					hRunningLikelihood = plot(runningCorrStruct.t, squeeze(runningCorrStruct.runningLikelihood(iUAV,iC,:,iW).*runningCorrStruct.runningPrior(iUAV,iC,1:end-1,iW)), 'LineWidth',2);
 					hRunningPrior = plot(runningCorrStruct.t, squeeze(runningCorrStruct.runningPrior(iUAV,iC,2:end,iW)), 'LineWidth',2, 'Color',[0.83,0,0.1]);
 				end
 				% Let's combine contiguous patches with same fillValue together
