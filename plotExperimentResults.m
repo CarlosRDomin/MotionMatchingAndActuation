@@ -22,12 +22,12 @@ function [runningCorrStruct] = plotExperimentResults(runningCorrStruct, whatToPl
 				%data = loadExperimentData(struct('datetime',{'2017-02-19 17-14-15','2017-02-19 17-56-48','2017-02-19 17-59-23','2017-02-19 18-01-29','2017-02-19 18-22-23','2017-02-19 18-24-25'}, 'ch','75'));
 				data = loadExperimentData(struct('datetime',{'2017-02-19 17-56-48','2017-02-19 17-59-23','2017-02-19 18-01-29','2017-02-19 18-22-23','2017-02-19 18-24-25'}, 'ch','75'));
 			end
-			runningCorrStruct = runMatchingFrameworkOnGivenData(data, [1 2 3], [1 2 3 4 5], [5:5:15 30:30:300]);	%(data, iCam=1:length(data), runningCorrWinSizes, dims=1:3, cropToMinT=true)
+			runningCorrStruct = runMatchingFrameworkOnGivenData(data, [1 2 3 4 5], [1 2 3 4 5], [5:5:15 30:30:300], 3);	%(data, iCam=1:length(data), runningCorrWinSizes, dims=1:3, cropToMinT=true)
 			save('runningCorrStruct.mat','runningCorrStruct');
 		end
 	end
 	if nargin<2 || isempty(whatToPlot)
-		whatToPlot = struct('rawAccel',false, 'scatterCorr',false, 'runningLikelihoodVsWinSize',false, 'runningLikelihoodFull',true);
+		whatToPlot = struct('rawAccel',true, 'scatterCorr',false, 'runningLikelihoodVsWinSize',true, 'runningLikelihoodFull',true);
 	end
 
 	figs = zeros(3, length(fieldnames(whatToPlot)));
@@ -164,14 +164,14 @@ function [runningCorrStruct] = plotExperimentResults(runningCorrStruct, whatToPl
 
 					%hCam = plot(runningCorrStruct.t, runningCorrStruct.accelCam(iC,:,d), 'LineWidth',2);
 					%hUAV = plot(runningCorrStruct.t, runningCorrStruct.accelUAV(iUAV,:,d), '-', 'LineWidth',2, 'Color',[0.83,0,0.1]);
-					for iD = 3 %%1:length(runningCorrStruct.dims)
+					for iD = length(runningCorrStruct.dims) %%1:length(runningCorrStruct.dims)
 						d = runningCorrStruct.dims(iD);			% For each dimension (e.g. z)
 						strAx = char('X'+d-1);					% Letter representation of the dimension ('X', 'Y', 'Z')
 						hRunningCorr = plot(runningCorrStruct.t, squeeze(runningCorrStruct.runningWinScore(iUAV,iC,:,iD,iW)), 'LineWidth',2);
 					end
 					%hRunningCorr = plot(runningCorrStruct.t, squeeze(prod(runningCorrStruct.runningWinScore(iUAV,iC,:,:,iW),4)), 'LineWidth',2);
 					%hRunningLikelihood = plot(runningCorrStruct.t, squeeze(runningCorrStruct.runningLikelihood(iUAV,iC,:,iW)), 'LineWidth',2);
-					hRunningLikelihood = plot(runningCorrStruct.t, squeeze(runningCorrStruct.runningLikelihood(iUAV,iC,:,iW).*runningCorrStruct.runningPrior(iUAV,iC,1:end-1,iW)), 'LineWidth',2);
+					%hRunningLikelihood = plot(runningCorrStruct.t, squeeze(runningCorrStruct.runningLikelihood(iUAV,iC,:,iW).*runningCorrStruct.runningPrior(iUAV,iC,1:end-1,iW)), 'LineWidth',2);
 					hRunningPrior = plot(runningCorrStruct.t, squeeze(runningCorrStruct.runningPrior(iUAV,iC,2:end,iW)), 'LineWidth',2, 'Color',[0.83,0,0.1]);
 				end
 				% Let's combine contiguous patches with same fillValue together

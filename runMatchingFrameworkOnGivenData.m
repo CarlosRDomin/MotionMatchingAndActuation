@@ -46,7 +46,7 @@ function out = runMatchingFrameworkOnGivenData(data, iUAVs, iCams, runningCorrWi
 	runningPrior = cat(3, ones(N, M, 2, length(runningCorrWinSizes))./(N), NaN(N, M, length(t)-1, length(runningCorrWinSizes)));
 	assignedMatch = NaN(N, length(t), length(runningCorrWinSizes));
 	
-	for iD = dims
+	for iD = 1:length(dims)
 		d = dims(iD);
 		strAx = char('X'+d-1);	% Letter representation of the dimension ('X', 'Y', 'Z')
 		for iC = 1:M
@@ -64,6 +64,7 @@ function out = runMatchingFrameworkOnGivenData(data, iUAVs, iCams, runningCorrWi
 		[runningWinScore, runningLikelihood, runningPrior, assignedMatch] = computeBayesianIteration(runningWinScore, runningLikelihood, runningPrior, assignedMatch, accelCam, accelUAV, currT, dims, runningCorrWinSizes, N, M);
 		dispImproved(sprintf('t=%6.2fs; %6.2f%% (%d out of %d)\n', t(currT), 100*currT/length(t), currT, length(t)));
 	end
+	dims = 1:length(dims); % Now, all variables that depend on dims (eg: accelCam, accelUAV...) have length(dims) dims. If dims=3, it would break because length(dims)=1
 	for f = outFields	% Populate output struct with results
 		out.(f{:}) = eval(f{:});
 	end

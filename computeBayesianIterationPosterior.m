@@ -10,9 +10,8 @@ function [runningLikelihood, runningPosterior] = computeBayesianIterationPosteri
 	N=size(runningWinScore,1);
 	M=size(runningWinScore,2);
 	
-	runningLikelihood = reshape(mvnpdf(reshape(runningWinScore, N*M,3), ones(1,3), sigmaLikelihood.*eye(3)), N,M);
+	runningLikelihood = reshape(mvnpdf(reshape(runningWinScore, N*M,[]), ones(1,size(runningWinScore,3)), sigmaLikelihood.*eye(size(runningWinScore,3))), N,M);
 	runningLikelihood = runningLikelihood./(repmat(sum(runningLikelihood,1, 'omitNaN'), N,1)+repmat(sum(runningLikelihood,2, 'omitNaN'), 1,M)-runningLikelihood);
-	%runningLikelihood = normpdf(runningWinScore, 1,sigmaLikelihood);
 	%runningLikelihood = prod(runningWinScore,3);	
 
 	runningPosterior = runningLikelihood.*runningPrior;
