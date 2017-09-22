@@ -19,6 +19,7 @@ sigmaNoiseAccel = 0.25;	% m/s2, noise in IMU's accelerometer data
 scatterPtSize = 80;
 scatterCoordLim = 5;
 scatterView = [10, 15];	% degrees of azimuth (theta) and elevation (pi/2-phi)
+roomDimensions = [5, 5, 2.5];  % Width x Depth x Height of the room in m
 
 tMax = 10; t = 0:deltaT/pointsPerIter:tMax; runningCorrWinSizes = pointsPerIter; iW=1;
 accelCam = cat(2, zeros(M, 1, length(dims)), NaN(M, length(t)-1, length(dims)));
@@ -27,7 +28,7 @@ posUAVgt = cat(2, randn(N, 1, length(dims)), NaN(N, length(t)-1, length(dims)));
 posUAVcam = posUAVgt;
 runningWinScore = cat(3, zeros(N, M, 1, length(dims), length(runningCorrWinSizes)), NaN(N, M, length(t)-1, length(dims), length(runningCorrWinSizes)));
 runningLikelihood = NaN(N, M, length(t), length(runningCorrWinSizes));
-runningPrior = cat(3, ones(N, M, 1, length(runningCorrWinSizes))./(N+M-1), NaN(N, M, length(t), length(runningCorrWinSizes)));
+runningPosterior = cat(3, ones(N, M, 1, length(runningCorrWinSizes))./(N+M-1), NaN(N, M, length(t)-1, length(runningCorrWinSizes)));
 assignedMatch = NaN(N, length(t), length(runningCorrWinSizes));
 groundTruthAssignment = randperm(N,M)'; groundTruthAssignment=(1:M)';	% Get a random permutation of M elements picked from the set 1:N
 
@@ -40,14 +41,14 @@ nTopAssignments = 7;  % Only consider the N most likely assignments
 for currT = 0:deltaT:(tMax-deltaT)
 	currTind = currT*pointsPerIter/deltaT + 1;
 	posUAVcam(:,currTind,:) = posUAVgt(:,currTind,:) + sigmaNoiseCam.*randn(size(posUAVcam(:,currTind,:)));
-	if prctile(reshape(runningPrior(:,:,currTind,iW),1,[]), 80) < 0.3 && currT<4
+	if prctile(reshape(runningPosterior(:,:,currTind,iW),1,[]), 80) < 0.3 && currT<4
 		[maxRho, dirTheta, dirPhi] = estimateLowestRiskyDirOfMotion(reshape(posUAVcam(:,currTind,:),M,[]));
 		maxRho = min(maxRho, deltaP);	% Make sure it's a feasible command
 		command = reshape([maxRho*rand(1,N); repmat([dirTheta; dirPhi], 1,N)], [],1);	% All drones move with same dirTheta and dirPhi, random rhos (of up to maxRho)
 	else
 		P_total = 0;
 		expectedCommand = zeros(3*N,1);
-		runningPriorTemp = runningPrior(:,:,currTind,iW);
+		runningPriorTemp = runningPosterior(:,:,currTind,iW);
         assignmentList = computeNBestAssignments(nTopAssignments, runningPriorTemp, -log(1e-30),-log(1e-2));
 		
 		for i = 1:nTopAssignments
@@ -57,7 +58,7 @@ for currT = 0:deltaT:(tMax-deltaT)
 			%sortedAssignment = sortrows([assignments; [unassignedUAVs(:) NaN(length(unassignedUAVs),1)]]);
 			[command,newP,exitFlag,output] = fmincon(@(x) (-estimateImprovementOfCommand(x,assignments,runningPriorTemp,[],sigmaNoiseAccel)), ...
 				zeros(3*N,1),[],[],[],[],zeros(3*N,1),repmat([deltaP,2*pi,pi]',N,1), ...
-				@(x) deal(minRisk-estimateRiskOfCommand(x,assignments,reshape(posUAVcam(:,currTind,:),M,[])), 0)); %, optimoptions('fmincon', 'Algorithm','active-set'));
+				@(x) deal(minRisk-estimateRiskOfCommand(x,assignments,posUAVcam(:,currTind,:), roomDimensions), 0)); %, optimoptions('fmincon', 'Algorithm','active-set'));
 			expectedCommand = expectedCommand + P_assignment.*command;
 		end
 		command = expectedCommand./P_total;
@@ -71,17 +72,17 @@ for currT = 0:deltaT:(tMax-deltaT)
 	posUAVgt(groundTruthAssignment,currTind+(1:pointsPerIter),:) = posUAVgt(groundTruthAssignment,currTind+(1:pointsPerIter),:) +p(groundTruthAssignment,:,:);
 	accelUAV(:,currTind+(1:pointsPerIter),:) = accelUAV(:,currTind+(1:pointsPerIter),:) + a;
 	accelCam(:,currTind+(1:pointsPerIter),:) = accelCam(:,currTind+(1:pointsPerIter),:) + a(groundTruthAssignment,:,:);
-	[runningWinScore, runningLikelihood, runningPrior, assignedMatch] = computeBayesianIteration(runningWinScore, runningLikelihood, runningPrior, assignedMatch, accelCam, accelUAV, currTind+pointsPerIter-1, dims, runningCorrWinSizes, N, M);
-	dispImproved(sprintf('\nPosterior likelihood:\n%s%s\n', [num2str(100.*runningPrior(:,:,currTind+pointsPerIter,iW), '%8.2f')'; repmat(13,1,N)], repmat('-',1,50)), 'keepthis');
+	[runningWinScore, runningLikelihood, runningPosterior, assignedMatch] = computeBayesianIteration(runningWinScore, runningLikelihood, runningPosterior, assignedMatch, accelCam, accelUAV, currTind+pointsPerIter-1, dims, runningCorrWinSizes, N, M);
+	dispImproved(sprintf('\nPosterior likelihood:\n%s%s\n', [num2str(100.*runningPosterior(:,:,currTind+pointsPerIter,iW), '%8.2f')'; repmat(13,1,N)], repmat('-',1,50)), 'keepthis');
 	
 	figure('Units','normalized', 'Position',[0.3 0.4 0.4 0.2]); colormap('jet'); hold on;
 	scatter3(posUAVgt(:,currTind+pointsPerIter,1), posUAVgt(:,currTind+pointsPerIter,2), posUAVgt(:,currTind+pointsPerIter,3), scatterPtSize, 1:N, 'filled');
 	title(sprintf('At t=%d, motion:%s', currT+deltaT, mat2str(command,2))); grid('on'); view(scatterView); xlim(scatterCoordLim.*[-1,1]); ylim(scatterCoordLim.*[-1,1]); zlim(scatterCoordLim.*[-1,1]);
 end
 %%
-runningPrior(:,:,2,:) = runningPrior(:,:,1,:);
+runningPosterior(:,:,2,:) = runningPosterior(:,:,1,:);
 for currT = 2:length(t)-1	% Fill in the gaps
-	[runningWinScore, runningLikelihood, runningPrior, assignedMatch] = computeBayesianIteration(runningWinScore, runningLikelihood, runningPrior, assignedMatch, accelCam, accelUAV, currT, dims, runningCorrWinSizes, N, M);
+	[runningWinScore, runningLikelihood, runningPosterior, assignedMatch] = computeBayesianIteration(runningWinScore, runningLikelihood, runningPosterior, assignedMatch, accelCam, accelUAV, currT, dims, runningCorrWinSizes, N, M);
 end
 %%
 outFields = {'runningWinScore','runningLikelihood','runningPrior','assignedMatch','N','M','iCams','dims','runningCorrWinSizes','cropToMinT','t','accelCam','accelUAV','posUAVgt','groundTruthAssignment','pointsPerIter','deltaP','deltaT','sigmaNoiseCam','sigmaNoisePos','sigmaNoiseAccel'};

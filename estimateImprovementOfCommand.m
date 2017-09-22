@@ -16,8 +16,8 @@ function newP = estimateImprovementOfCommand(command, assignments, runningPrior,
 	
 	accels = predictPosVelAccelFromCommand(command(3*assignments(:,2)-2), command(3*assignments(:,2)-1), command(3*assignments(:,2)));
 	accels = accels + sigmaNoiseAccel.*randn(size(accels));
-	for i = 1:size(assignments,1)
-		for j = 1:size(assignments,1)
+	for i = 1:size(runningWinScore,1)
+		for j = 1:size(runningWinScore,2)
 			if j > i
 				for iD = 1:3  % Compute the score
 					runningWinScore(i,j,iD) = 1-pdist2(accels(iD,:,i), accels(iD,:,j), 'euclidean')/(eps+norm(accels(iD,:,i))+norm(accels(iD,:,j)));

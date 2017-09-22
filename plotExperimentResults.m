@@ -13,7 +13,7 @@ function [runningCorrStruct] = plotExperimentResults(runningCorrStruct, whatToPl
 			runningCorrStruct.runningCorrWinSizes([1:2 4:end]) = [];
 			runningCorrStruct.runningWinScore(:,:,:,:,[1:2 4:end]) = [];
 			runningCorrStruct.assignedMatch(:,:,:,[1:2 4:end]) = [];
-			runningCorrStruct.runningPrior(:,:,:,:,[1:2 4:end]) = [];
+			runningCorrStruct.runningPosterior(:,:,:,:,[1:2 4:end]) = [];
 			runningCorrStruct.runningLikelihood(:,:,:,:,[1:2 4:end]) = [];
 			runningCorrStruct.dims = 3;
 			error;	% Force to go into loading experiment data from scratch
@@ -111,7 +111,7 @@ function [runningCorrStruct] = plotExperimentResults(runningCorrStruct, whatToPl
 						end
 						hRunningCorr = plot(runningCorrStruct.t, squeeze(prod(runningCorrStruct.runningWinScore(iUAV,iC,:,:,iW),4)), 'LineWidth',2);
 					end
-					hRunningCorr = plot(runningCorrStruct.t, squeeze(runningCorrStruct.runningPrior(iUAV,iC,2:end,iW)), 'LineWidth',2);
+					hRunningCorr = plot(runningCorrStruct.t, squeeze(runningCorrStruct.runningPosterior(iUAV,iC,:,iW)), 'LineWidth',2);
 				end
 				% Let's combine contiguous patches with same fillValue together
 				changeInds = find([fillValues fillValues(end)]~=[fillValues(1) fillValues]);
@@ -171,8 +171,8 @@ function [runningCorrStruct] = plotExperimentResults(runningCorrStruct, whatToPl
 					end
 					%hRunningCorr = plot(runningCorrStruct.t, squeeze(prod(runningCorrStruct.runningWinScore(iUAV,iC,:,:,iW),4)), 'LineWidth',2);
 					%hRunningLikelihood = plot(runningCorrStruct.t, squeeze(runningCorrStruct.runningLikelihood(iUAV,iC,:,iW)), 'LineWidth',2);
-					%hRunningLikelihood = plot(runningCorrStruct.t, squeeze(runningCorrStruct.runningLikelihood(iUAV,iC,:,iW).*runningCorrStruct.runningPrior(iUAV,iC,1:end-1,iW)), 'LineWidth',2);
-					hRunningPrior = plot(runningCorrStruct.t, squeeze(runningCorrStruct.runningPrior(iUAV,iC,2:end,iW)), 'LineWidth',2, 'Color',[0.83,0,0.1]);
+					%hRunningLikelihood = plot(runningCorrStruct.t, squeeze(runningCorrStruct.runningLikelihood(iUAV,iC,:,iW).*runningCorrStruct.runningPosterior(iUAV,iC,:,iW)), 'LineWidth',2);
+					hRunningPrior = plot(runningCorrStruct.t, squeeze(runningCorrStruct.runningPosterior(iUAV,iC,:,iW)), 'LineWidth',2, 'Color',[0.83,0,0.1]);
 				end
 				% Let's combine contiguous patches with same fillValue together
 				changeInds = find([fillValues fillValues(end)]~=[fillValues(1) fillValues]);

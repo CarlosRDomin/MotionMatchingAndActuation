@@ -36,14 +36,14 @@ function out = runMatchingFrameworkOnGivenData(data, iUAVs, iCams, runningCorrWi
 	if cropToMinT, t = tMinT; else, t = tMaxT; end	% If requested, crop all signals to the shortest signal. Otherwise, zero-pad all signals to the longest signal
 	if ~isnan(maxExperimentTime), t(t>maxExperimentTime)=[]; end	% If requested, limit the maximum experiment time
 	
-	outFields = {'runningWinScore','runningLikelihood','runningPrior','assignedMatch','N','M','iCams','dims','runningCorrWinSizes','cropToMinT','t','accelCam','accelUAV'};
+	outFields = {'runningWinScore','runningLikelihood','runningPosterior','assignedMatch','N','M','iCams','dims','runningCorrWinSizes','cropToMinT','t','accelCam','accelUAV'};
 	out = cell2struct(cell(1, length(outFields)), outFields, 2);
 	%%% t = zeros(M, lenT, length(dims));
 	accelCam = NaN(M, length(t), length(dims));
 	accelUAV = NaN(N, length(t), length(dims));
 	runningWinScore = NaN(N, M, length(t), length(dims), length(runningCorrWinSizes));
 	runningLikelihood = NaN(N, M, length(t), length(runningCorrWinSizes));
-	runningPrior = cat(3, ones(N, M, 2, length(runningCorrWinSizes))./(N), NaN(N, M, length(t)-1, length(runningCorrWinSizes)));
+	runningPosterior = cat(3, ones(N, M, 2, length(runningCorrWinSizes))./(N+M-1), NaN(N, M, length(t)-1, length(runningCorrWinSizes)));
 	assignedMatch = NaN(N, length(t), length(runningCorrWinSizes));
 	
 	for iD = 1:length(dims)
@@ -61,7 +61,7 @@ function out = runMatchingFrameworkOnGivenData(data, iUAVs, iCams, runningCorrWi
 
 	dispImproved('', 'init'); dispImproved('Computing stats... ', 'keepthis');
 	for currT = 2:length(t)
-		[runningWinScore, runningLikelihood, runningPrior, assignedMatch] = computeBayesianIteration(runningWinScore, runningLikelihood, runningPrior, assignedMatch, accelCam, accelUAV, currT, dims, runningCorrWinSizes, N, M);
+		[runningWinScore, runningLikelihood, runningPosterior, assignedMatch] = computeBayesianIteration(runningWinScore, runningLikelihood, runningPosterior, assignedMatch, accelCam, accelUAV, currT, dims, runningCorrWinSizes, N, M);
 		dispImproved(sprintf('t=%6.2fs; %6.2f%% (%d out of %d)\n', t(currT), 100*currT/length(t), currT, length(t)));
 	end
 	dims = 1:length(dims); % Now, all variables that depend on dims (eg: accelCam, accelUAV...) have length(dims) dims. If dims=3, it would break because length(dims)=1
