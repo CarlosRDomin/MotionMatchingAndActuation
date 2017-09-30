@@ -30,7 +30,7 @@ function h = plotDronesInGCA(posUAVgt, roomDimensions, spotterCamInfo, scatterPt
 	if nargin<4 || isempty(scatterPtSize), scatterPtSize = 80; end
 
 	cla; hold on; colormap('jet');
-	h = scatter3(posUAVgt(:,1,1), posUAVgt(:,1,2), posUAVgt(:,1,3), scatterPtSize, 1:size(posUAVgt,1), 'filled');
+	h = scatter3(posUAVgt(:,1,1), posUAVgt(:,1,2), posUAVgt(:,1,3), scatterPtSize, (1:size(posUAVgt,1))', 'filled');
 	if ~isempty(spotterCamInfo), plotCamera('Location',spotterCamInfo.pos, 'Orientation',spotterCamInfo.orient, 'Size',spotterCamInfo.size, 'Opacity',spotterCamInfo.alpha); end
 	plotCube(zeros(1,3), roomDimensions, 'FaceColor','blue', 'EdgeColor','blue', 'FaceAlpha',.1, 'EdgeAlpha',.5);
 	grid('on'); axis equal; xlabel('X (m)'); ylabel('Y (m)'); zlabel('Z (m)');
