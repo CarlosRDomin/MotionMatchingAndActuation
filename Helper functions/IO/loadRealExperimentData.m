@@ -2,7 +2,7 @@
 % Loads (real, ie. from CF drones) experiment data from .npz files into a struct which contains the accel measured from the camera, accel and gyro measured from the drone's IMU...
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-function data = loadExperimentData(logInfo, logFolder)
+function data = loadRealExperimentData(logInfo, logFolder)
     magnitudes = {'X'; 'Y'; 'Z'};
     if nargin < 2 || isempty(logFolder)
         logFolder = [fileparts(mfilename('fullpath')) '/../../data/Real'];
