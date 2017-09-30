@@ -19,7 +19,7 @@ function [runningWinScore, runningLikelihood, runningPosterior, assignedMatch] =
 		derivFiltHalfWinSize = 10;
 	end
 	if nargin<13 || isempty(sigmaLikelihood)
-		sigmaLikelihood = 1.5;
+		sigmaLikelihood = 1;
 	end
 	if nargin<14 || isempty(normalizationByRowAndColumn)
 		normalizationByRowAndColumn = 1;
