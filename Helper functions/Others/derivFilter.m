@@ -11,7 +11,7 @@ function signalOut = derivFilter(signalIn, deriv, dt, poly_order, win_size)
 	signalOut = zeros(size(signalIn));
 	for iSignal = 1:size(signalIn,1)
 		for iDim = 1:size(signalIn,3)
-			signalOut(iSignal,:,iDim) = conv(signalIn(iSignal,:,iDim), factorial(deriv)/(-1/dt)^deriv * diffMatrix(:,deriv+1), 'same');
+			signalOut(iSignal,:,iDim) = conv(signalIn(iSignal,:,iDim), factorial(deriv)/(-dt)^deriv * diffMatrix(:,deriv+1), 'same');
 		end
 	end
 end
