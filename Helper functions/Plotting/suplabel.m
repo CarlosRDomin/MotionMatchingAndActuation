@@ -46,6 +46,7 @@ function [ax, h] = suplabel(text, whichLabel, supAxes, axMargin, varargin)
 		if ~isempty(supAxes), ah = supAxes(:); else, ah = findall(gcf, 'type','axes', 'Visible','on'); end
 		if ~isempty(ah)
 			set(ah(~strcmpi(get(ah, 'Units'), 'Normalized')), 'Units','Normalized');	% Speedup: only set units to axes that don't have Normalized units yet (it's a slow operation)
+			if numel(ah)==1, ah = repmat(ah, 1,2); end % Next line expects get(ah, 'Position') to return a cell array, which only happens if length(ah)>1
 			thisPos = cell2mat(get(ah, 'Position'));
 			currAxBounds = [min(thisPos(:,1:2)) max(thisPos(:,1:2)+thisPos(:,3:4))];
 % 			currAxBounds = NaN(1,4);
