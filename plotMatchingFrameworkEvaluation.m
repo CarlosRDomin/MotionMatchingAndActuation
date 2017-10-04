@@ -100,8 +100,8 @@ if ~skipProcess
 						end
 
 						% MOTA: # correct guesses / # total guesses made
-						experimentsStruct.(typeOfMotion).idMOTA(experimentInd,Nind,confidenceThreshInd,1:actualTimeStepsMOTA+1) = cumsum(correctOverTime(actualTimeIndsMOTA)) / max(1, cumsum(numConfidentAssignmentsOverTime(actualTimeIndsMOTA)));
-						experimentsStruct.(typeOfMotion).idMOTA(experimentInd,Nind,confidenceThreshInd,actualTimeStepsMOTA+2:end) = experimentsStruct.(typeOfMotion).idMOTA(experimentInd,Nind,confidenceThreshInd,actualTimeStepsMOTA+1);
+						experimentsStruct.(typeOfMotion).idMOTA(experimentInd,Nind,confidenceThreshInd,1:actualTimeStepsMOTA+1) = cumsum(correctOverTime(actualTimeIndsMOTA)) ./ max(1, cumsum(numConfidentAssignmentsOverTime(actualTimeIndsMOTA)));
+						%experimentsStruct.(typeOfMotion).idMOTA(experimentInd,Nind,confidenceThreshInd,actualTimeStepsMOTA+2:end) = experimentsStruct.(typeOfMotion).idMOTA(experimentInd,Nind,confidenceThreshInd,actualTimeStepsMOTA+1);
 
 						% idAccuracyFirstEver: % of correct guesses only taking into account the first guess (above confidenceThresh) ever made for each drone (row) individually
 						experimentsStruct.(typeOfMotion).idAccuracyFirstEver(experimentInd,Nind,confidenceThreshInd) = sum(correctFirstIDdIndiv)/N;
@@ -211,27 +211,41 @@ end
 %% Plot MOTA and survivors vs type of motion over time
 if true
 	lWidth = 3; lWidthErr = 1; fSizeLabels = 16; fSizeAxes = 14;
-	N = 10;
+	N = 10; tEnd = 150;
 	for roomSizeCell = {'5x5x2.5.mat'} %{'5x5x2.5.mat', '15x10x3.mat'}
 		roomSize = roomSizeCell{:};
 		processedResultsFileName = [simOutputFolder typeOfExperiment '_processed_' roomSize];
 		load(processedResultsFileName);
-		figure('Units','pixels', 'Position',[200 200, 560 225]); hold on;
-		h = [];
-		for typeOfMotionCell = fieldnames(experimentsStruct)'
-			typeOfMotion = typeOfMotionCell{:};
+		typeOfMotionCell = fieldnames(experimentsStruct)';
+		
+		figure('Units','pixels', 'Position',[200 200, 560 375]);
+		ax = gobjects(2,1); h = gobjects(2,numel(typeOfMotionCell));
+		for typeOfMotionInd = 1:numel(typeOfMotionCell)
+			typeOfMotion = typeOfMotionCell{typeOfMotionInd};
+			
+			% Compute MOTA and numSurvivors stats (mean, std)
+			MOTAmean = squeeze(mean(experimentsStruct.(typeOfMotion).idMOTA(:,:,1,:), 1, 'omitnan'));
+			MOTAstd = squeeze(std(experimentsStruct.(typeOfMotion).idMOTA(:,:,1,:), 0,1, 'omitnan'));
 			numSurvivorsMean = squeeze(mean(experimentsStruct.(typeOfMotion).numSurvivors, 1, 'omitnan'));
 			numSurvivorsStd = squeeze(std(experimentsStruct.(typeOfMotion).numSurvivors, 0,1, 'omitnan'));
 			t = (0:size(numSurvivorsMean,2)-1) / numWindowsPerSecond;
 
-			h(end+1) = errorbar(t, numSurvivorsMean(N-1,:), numSurvivorsStd(N-1,:), 'LineWidth',lWidthErr);
-			plot(t, numSurvivorsMean(N-1,:), 'LineWidth',lWidthErr, 'Color',get(h(end),'Color'));
+			ax(1) = subplot(2,1,1); hold on;
+			h(1,typeOfMotionInd) = errorbar(t, MOTAmean(N-1,:), MOTAstd(N-1,:), 'LineWidth',lWidthErr);
+			plot(t, MOTAmean(N-1,:), 'LineWidth',lWidthErr, 'Color',get(h(1,typeOfMotionInd),'Color'));
+			xlim([0,tEnd]); ylim([0 1]); ylabel('MOTA (%)', 'FontSize',fSizeLabels);
+			
+			ax(2) = subplot(2,1,2); hold on;
+			h(2,typeOfMotionInd) = errorbar(t, numSurvivorsMean(N-1,:), numSurvivorsStd(N-1,:), 'LineWidth',lWidthErr);
+			plot(t, numSurvivorsMean(N-1,:), 'LineWidth',lWidthErr, 'Color',get(h(2,typeOfMotionInd),'Color'));
+			xlim([0,tEnd]); ylim([-0.05 1.05]); ylabel('Survival rate (%)', 'FontSize',fSizeLabels);
 		end
-		xlim([0,150]); ylim([-0.05 1.05]);
-		xL=xlabel('Time (s)', 'FontSize',fSizeLabels); set(xL, 'Position',get(xL,'Position')+[0 0.015 0]);
-		ylabel('Survival rate (%)', 'FontSize',fSizeLabels); set(gca, 'Box','on', 'Position',get(gca,'Position')+[0 0.03 0 0], 'FontSize',fSizeAxes);
-		legend(h([3 1 2]), {'Random motion', 'Hovering', 'Landed'}, 'FontSize',fSizeAxes, 'Location','SouthEast');
-		saveFigToFile(['MOTAoverTimeForDifferentTypeOfMotion_' roomSize(1:end-4)]);
+		%xL=xlabel('Time (s)', 'FontSize',fSizeLabels); set(xL, 'Position',get(xL,'Position')+[0 0.015 0]);
+		suplabel('Time (s)', 'x', ax(:), 0, 'FontSize',fSizeLabels);
+		set(ax(:), 'Box','on', 'FontSize',fSizeAxes); %set(ax(:), 'Box','on', 'Position',get(ax(:),'Position')+[0 0.03 0 0], 'FontSize',fSizeAxes);
+		%for i=1:2, if i==1,loc='South'; else, loc='SouthEast'; end; legend(h(i,[3 1 2]), {'Random motion', 'Hovering', 'Landed'}, 'FontSize',fSizeAxes, 'Location',loc); end
+		l=legend(h(1,[3 1 2]), {'Random motion', 'Hovering', 'Landed'}, 'Orientation','horizontal', 'FontSize',fSizeAxes); set(l, 'Units','normalized', 'Position',[0.15 0.49 0.7 0]);
+		saveFigToFile(['MOTAandSurvivalOverTimeForDifferentTypeOfMotion_' roomSize(1:end-4)]);
 	end
 end
 return
