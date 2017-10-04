@@ -209,8 +209,8 @@ if false
 end
 
 %% Plot MOTA and survivors vs type of motion over time
-if true
-	lWidth = 3; lWidthErr = 1; fSizeLabels = 16; fSizeAxes = 14;
+if false
+	lWidth = 3; lWidthErr = 1; fSizeLabels = 17; fSizeAxes = 13.5;
 	N = 10; tEnd = 150;
 	for roomSizeCell = {'5x5x2.5.mat'} %{'5x5x2.5.mat', '15x10x3.mat'}
 		roomSize = roomSizeCell{:};
@@ -230,22 +230,70 @@ if true
 			numSurvivorsStd = squeeze(std(experimentsStruct.(typeOfMotion).numSurvivors, 0,1, 'omitnan'));
 			t = (0:size(numSurvivorsMean,2)-1) / numWindowsPerSecond;
 
+			% Plot MOTA
 			ax(1) = subplot(2,1,1); hold on;
 			h(1,typeOfMotionInd) = errorbar(t, MOTAmean(N-1,:), MOTAstd(N-1,:), 'LineWidth',lWidthErr);
 			plot(t, MOTAmean(N-1,:), 'LineWidth',lWidthErr, 'Color',get(h(1,typeOfMotionInd),'Color'));
-			xlim([0,tEnd]); ylim([0 1]); ylabel('MOTA (%)', 'FontSize',fSizeLabels);
+			xlim([0,tEnd]); ylim([0 1]); ylabel('MOTA (%)', 'FontSize',fSizeLabels+1);
 			
+			% Plot survival rate
 			ax(2) = subplot(2,1,2); hold on;
 			h(2,typeOfMotionInd) = errorbar(t, numSurvivorsMean(N-1,:), numSurvivorsStd(N-1,:), 'LineWidth',lWidthErr);
 			plot(t, numSurvivorsMean(N-1,:), 'LineWidth',lWidthErr, 'Color',get(h(2,typeOfMotionInd),'Color'));
-			xlim([0,tEnd]); ylim([-0.05 1.05]); ylabel('Survival rate (%)', 'FontSize',fSizeLabels);
+			xlim([0,tEnd]); ylim([-0.05 1.05]); ylabel('Survival rate (%)', 'FontSize',fSizeLabels+1);
 		end
-		%xL=xlabel('Time (s)', 'FontSize',fSizeLabels); set(xL, 'Position',get(xL,'Position')+[0 0.015 0]);
-		suplabel('Time (s)', 'x', ax(:), 0, 'FontSize',fSizeLabels);
-		set(ax(:), 'Box','on', 'FontSize',fSizeAxes); %set(ax(:), 'Box','on', 'Position',get(ax(:),'Position')+[0 0.03 0 0], 'FontSize',fSizeAxes);
-		%for i=1:2, if i==1,loc='South'; else, loc='SouthEast'; end; legend(h(i,[3 1 2]), {'Random motion', 'Hovering', 'Landed'}, 'FontSize',fSizeAxes, 'Location',loc); end
-		l=legend(h(1,[3 1 2]), {'Random motion', 'Hovering', 'Landed'}, 'Orientation','horizontal', 'FontSize',fSizeAxes); set(l, 'Units','normalized', 'Position',[0.15 0.49 0.7 0]);
-		saveFigToFile(['MOTAandSurvivalOverTimeForDifferentTypeOfMotion_' roomSize(1:end-4)]);
+		suplabel('Time (s)', 'x', ax(:), -0.01, 'FontSize',fSizeLabels);
+		set(ax(:), 'Box','on', 'FontSize',fSizeAxes);
+		l=legend(h(1,[3 1 2]), {'Random motion', 'Hovering', 'Landed'}, 'Orientation','horizontal', 'FontSize',fSizeAxes); set(l, 'Units','normalized', 'Position',[0.17 0.494 0.7 0]);
+		saveFigToFile(['MOTAandSurvivalOverTimeForDifferentTypeOfMotion_' num2str(N) 'N']);
+	end
+end
+
+%% Plot MOTA and survivors vs type of motion over time
+if true
+	lWidth = 3; lWidthErr = 1; fSizeLabels = 17; fSizeAxes = 13.5;
+	tEnd = 100;
+	for roomSizeCell = {'5x5x2.5.mat'} %{'5x5x2.5.mat', '15x10x3.mat'}
+		roomSize = roomSizeCell{:};
+		processedResultsFileName = [simOutputFolder typeOfExperiment '_processed_' roomSize];
+		load(processedResultsFileName);
+		typeOfMotionCell = fieldnames(experimentsStruct)';
+
+		for typeOfMotionInd = 1:numel(typeOfMotionCell)
+			typeOfMotion = typeOfMotionCell{typeOfMotionInd};
+			if strcmpi(typeOfMotion, 'landed'), N = 5:5:15; else, N = 5:5:25; end
+			
+			figure('Units','pixels', 'Position',[200 200, 560 375]);
+			ax = gobjects(2,1); h = gobjects(2,numel(N));
+
+			% Compute MOTA and numSurvivors stats (mean, std)
+			MOTAmean = squeeze(mean(experimentsStruct.(typeOfMotion).idMOTA(:,:,1,:), 1, 'omitnan'));
+			MOTAstd = squeeze(std(experimentsStruct.(typeOfMotion).idMOTA(:,:,1,:), 0,1, 'omitnan'));
+			numSurvivorsMean = squeeze(mean(experimentsStruct.(typeOfMotion).numSurvivors, 1, 'omitnan'));
+			numSurvivorsStd = squeeze(std(experimentsStruct.(typeOfMotion).numSurvivors, 0,1, 'omitnan'));
+			t = (0:size(numSurvivorsMean,2)-1) / numWindowsPerSecond;
+
+			for NarrInd = 1:numel(N)
+				Nind = N(NarrInd)-1;
+
+				% Plot MOTA
+				ax(1) = subplot(2,1,1); hold on;
+				h(1,NarrInd) = errorbar(t, MOTAmean(Nind,:), MOTAstd(Nind,:), 'LineWidth',lWidthErr);
+				plot(t, MOTAmean(Nind,:), 'LineWidth',lWidthErr, 'Color',get(h(1,NarrInd),'Color'));
+				xlim([0,tEnd]); ylim([0 1]); ylabel('MOTA (%)', 'FontSize',fSizeLabels+1);
+
+				% Plot survival rate
+				ax(2) = subplot(2,1,2); hold on;
+				h(2,NarrInd) = errorbar(t, numSurvivorsMean(Nind,:), numSurvivorsStd(Nind,:), 'LineWidth',lWidthErr);
+				plot(t, numSurvivorsMean(Nind,:), 'LineWidth',lWidthErr, 'Color',get(h(2,NarrInd),'Color'));
+				xlim([0,tEnd]); ylim([-0.05 1.05]); ylabel('Survival rate (%)', 'FontSize',fSizeLabels+1);
+			end
+
+			suplabel('Time (s)', 'x', ax(:), -0.01, 'FontSize',fSizeLabels);
+			set(ax(:), 'Box','on', 'FontSize',fSizeAxes);
+			l=legend(h(1,:), cellstr(strcat('N=',num2str((N)'))), 'Orientation','horizontal', 'FontSize',fSizeAxes); set(l, 'Units','normalized', 'Position',[0.17 0.494 0.7 0]);
+			saveFigToFile(['MOTAandSurvivalOverTimeForDifferentN_' typeOfMotion]);
+		end
 	end
 end
 return
