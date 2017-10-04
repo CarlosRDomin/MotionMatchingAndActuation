@@ -2,12 +2,12 @@
 % Compute a Bayesian inference iteration, ie. calculate the posterior probability (and pairwise matching score & likelihood) given the history so far of matching scores, likelihood, priors, etc.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-function [runningWinScore, runningLikelihood, runningPosterior, assignedMatch] = computeBayesianIteration(runningWinScore, runningLikelihood, runningPosterior, assignedMatch, yCam, yUAV, currT, dims, runningCorrWinSizes, N, M, derivFiltHalfWinSize, sigmaLikelihood, normalizationByRowAndColumn)
+function [runningWinScore, runningLikelihood, runningPosterior, assignedMatch] = computeBayesianIteration(runningWinScore, runningLikelihood, runningPosterior, assignedMatch, yCam, yUAV, currT, dims, frameworkWinSize, N, M, derivFiltHalfWinSize, sigmaLikelihood, normalizationByRowAndColumn)
 	if nargin<8 || isempty(dims)
 		dims = 1:3;
 	end
-	if nargin<9 || isempty(runningCorrWinSizes)
-		runningCorrWinSizes = 15;
+	if nargin<9 || isempty(frameworkWinSize)
+		frameworkWinSize = 15;
 	end
 	if nargin<10 || isempty(N)
 		N = size(yUAV,1);
@@ -22,19 +22,28 @@ function [runningWinScore, runningLikelihood, runningPosterior, assignedMatch] =
 		sigmaLikelihood = 1;
 	end
 	if nargin<14 || isempty(normalizationByRowAndColumn)
-		normalizationByRowAndColumn = 1;
+		normalizationByRowAndColumn = 0;
 	end
 
-	for iW = 1:length(runningCorrWinSizes)
-		winSize = runningCorrWinSizes(iW);
+	for iW = 1:length(frameworkWinSize)
+		winSize = frameworkWinSize(iW);
 		if mod(currT-1, winSize) == 0  % Check if we just filled out a time-window. If so, compute the iteration
 			% Compute the score for this time-window (use a delayed window to avoid using points affected by the derivative filter time-window)
 			inds = ((currT-winSize):currT-1)-derivFiltHalfWinSize+1; inds(inds<1) = []; % Indices that represent the points in the current time-window (which lags by derivFilterHalfWinSize points behind currT)
 			warning('off', 'stats:pdist2:ConstantPoints'); warning('off', 'stats:pdist2:ZeroPoints');	% Disable correlation and cosine pdist2 warnings
 			for iD = 1:length(dims)
 				%runningWinScore(:,:,currT,iD,iW) = ones(N,M) - pdist2(yUAV(:,inds,iD)+eps*rand(N,length(inds),1), yCam(:,inds,iD)+eps*rand(M,length(inds),1), 'correlation'); %'cosine');	% pdist2 produces an MxN matrix (it compares each row in X with each row in Y) so we need to transpose it to get NxM
-				runningWinScore(:,:,currT,iD,iW) = ones(N,M) - pdist2(yUAV(:,inds,iD)-mean(yUAV(:,inds,iD),2, 'omitnan'), yCam(:,inds,iD)-mean(yCam(:,inds,iD),2, 'omitnan'), 'euclidean')./(repmat(sqrt(sum(yUAV(:,inds,iD).^2,2)), 1,M)+repmat(sqrt(sum(yCam(:,inds,iD).^2,2))', N,1));	% pdist2 produces an MxN matrix (it compares each row in X with each row in Y) so we need to transpose it to get NxM
-				%runningWinScore(:,:,currT,iD,iW) = ones(N,M) - pdist2(yUAV(:,inds,iD), yCam(:,inds,iD), 'euclidean')./(repmat(sqrt(sum(yUAV(:,inds,iD).^2,2)), 1,M)+repmat(sqrt(sum(yCam(:,inds,iD).^2,2))', N,1));	% pdist2 produces an MxN matrix (it compares each row in X with each row in Y) so we need to transpose it to get NxM
+				if true
+					%runningWinScore(:,:,currT,iD,iW) = ones(N,M) - pdist2(yUAV(:,inds,iD)-mean(yUAV(:,inds,iD),2, 'omitnan'), yCam(:,inds,iD)-mean(yCam(:,inds,iD),2, 'omitnan'), 'euclidean')./(repmat(sqrt(sum(yUAV(:,inds,iD).^2,2)), 1,M)+repmat(sqrt(sum(yCam(:,inds,iD).^2,2))', N,1));	% pdist2 produces an MxN matrix (it compares each row in X with each row in Y) so we need to transpose it to get NxM
+					runningWinScore(:,:,currT,iD,iW) = ones(N,M) - pdist2(yUAV(:,inds,iD), yCam(:,inds,iD), 'euclidean')./(repmat(sqrt(sum(yUAV(:,inds,iD).^2,2)), 1,M)+repmat(sqrt(sum(yCam(:,inds,iD).^2,2))', N,1));	% pdist2 produces an MxN matrix (it compares each row in X with each row in Y) so we need to transpose it to get NxM
+					%runningWinScore(:,:,currT,iD,iW) = ones(N,M) - pdist2(yUAV(:,inds,iD), yCam(:,inds,iD), 'euclidean')./(sqrt(2)*sqrt(repmat(sum(yUAV(:,inds,iD).^2,2), 1,M)+repmat(sum(yCam(:,inds,iD).^2,2)', N,1)));	% pdist2 produces an MxN matrix (it compares each row in X with each row in Y) so we need to transpose it to get NxM
+				else
+					for n = 1:size(runningWinScore,1)
+						for m = 1:size(runningWinScore,2)
+							runningWinScore(n,m,currT,iD,iW) = max(xcorr(yUAV(n,inds,iD)./sqrt(sum(yUAV(n,inds,iD).^2,2)), yCam(m,inds,iD)./sqrt(sum(yCam(m,inds,iD).^2,2)), 3));
+						end
+					end
+				end
 			end
 			
 			% Then update the likelihood and posterior, and recompute the optimal id assignment

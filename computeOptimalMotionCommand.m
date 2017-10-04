@@ -21,15 +21,15 @@ scatterCoordLim = 5;
 scatterView = [10, 15];	% degrees of azimuth (theta) and elevation (pi/2-phi)
 roomDimensions = [5, 5, 2.5];  % Width x Depth x Height of the room in m
 
-tMax = 10; t = 0:deltaT/pointsPerIter:tMax; runningCorrWinSizes = pointsPerIter; iW=1;
+tMax = 10; t = 0:deltaT/pointsPerIter:tMax; frameworkWinSize = pointsPerIter; iW=1;
 accelCam = cat(2, zeros(M, 1, length(dims)), NaN(M, length(t)-1, length(dims)));
 accelUAV = cat(2, zeros(N, 1, length(dims)), NaN(N, length(t)-1, length(dims)));
 posUAVgt = cat(2, randn(N, 1, length(dims)), NaN(N, length(t)-1, length(dims)));
 posUAVcam = posUAVgt;
-runningWinScore = cat(3, zeros(N, M, 1, length(dims), length(runningCorrWinSizes)), NaN(N, M, length(t)-1, length(dims), length(runningCorrWinSizes)));
-runningLikelihood = NaN(N, M, length(t), length(runningCorrWinSizes));
-runningPosterior = cat(3, ones(N, M, 1, length(runningCorrWinSizes))./(N+M-1), NaN(N, M, length(t)-1, length(runningCorrWinSizes)));
-assignedMatch = NaN(N, length(t), length(runningCorrWinSizes));
+runningWinScore = cat(3, zeros(N, M, 1, length(dims), length(frameworkWinSize)), NaN(N, M, length(t)-1, length(dims), length(frameworkWinSize)));
+runningLikelihood = NaN(N, M, length(t), length(frameworkWinSize));
+runningPosterior = cat(3, ones(N, M, 1, length(frameworkWinSize))./(N+M-1), NaN(N, M, length(t)-1, length(frameworkWinSize)));
+assignedMatch = NaN(N, length(t), length(frameworkWinSize));
 groundTruthAssignment = randperm(N,M)'; groundTruthAssignment=(1:M)';	% Get a random permutation of M elements picked from the set 1:N
 
 figure('Units','normalized', 'Position',[0.3 0.4 0.4 0.2]); colormap('jet');
@@ -72,7 +72,7 @@ for currT = 0:deltaT:(tMax-deltaT)
 	posUAVgt(groundTruthAssignment,currTind+(1:pointsPerIter),:) = posUAVgt(groundTruthAssignment,currTind+(1:pointsPerIter),:) +p(groundTruthAssignment,:,:);
 	accelUAV(:,currTind+(1:pointsPerIter),:) = accelUAV(:,currTind+(1:pointsPerIter),:) + a;
 	accelCam(:,currTind+(1:pointsPerIter),:) = accelCam(:,currTind+(1:pointsPerIter),:) + a(groundTruthAssignment,:,:);
-	[runningWinScore, runningLikelihood, runningPosterior, assignedMatch] = computeBayesianIteration(runningWinScore, runningLikelihood, runningPosterior, assignedMatch, accelCam, accelUAV, currTind+pointsPerIter-1, dims, runningCorrWinSizes, N, M);
+	[runningWinScore, runningLikelihood, runningPosterior, assignedMatch] = computeBayesianIteration(runningWinScore, runningLikelihood, runningPosterior, assignedMatch, accelCam, accelUAV, currTind+pointsPerIter-1, dims, frameworkWinSize, N, M);
 	dispImproved(sprintf('\nPosterior likelihood:\n%s%s\n', [num2str(100.*runningPosterior(:,:,currTind+pointsPerIter,iW), '%8.2f')'; repmat(13,1,N)], repmat('-',1,50)), 'keepthis');
 	
 	figure('Units','normalized', 'Position',[0.3 0.4 0.4 0.2]); colormap('jet'); hold on;
@@ -82,10 +82,10 @@ end
 %%
 runningPosterior(:,:,2,:) = runningPosterior(:,:,1,:);
 for currT = 2:length(t)-1	% Fill in the gaps
-	[runningWinScore, runningLikelihood, runningPosterior, assignedMatch] = computeBayesianIteration(runningWinScore, runningLikelihood, runningPosterior, assignedMatch, accelCam, accelUAV, currT, dims, runningCorrWinSizes, N, M);
+	[runningWinScore, runningLikelihood, runningPosterior, assignedMatch] = computeBayesianIteration(runningWinScore, runningLikelihood, runningPosterior, assignedMatch, accelCam, accelUAV, currT, dims, frameworkWinSize, N, M);
 end
 %%
-outFields = {'runningWinScore','runningLikelihood','runningPrior','assignedMatch','N','M','iCams','dims','runningCorrWinSizes','cropToMinT','t','accelCam','accelUAV','posUAVgt','groundTruthAssignment','pointsPerIter','deltaP','deltaT','sigmaNoiseCam','sigmaNoisePos','sigmaNoiseAccel'};
+outFields = {'runningWinScore','runningLikelihood','runningPrior','assignedMatch','N','M','iCams','dims','frameworkWinSize','cropToMinT','t','accelCam','accelUAV','posUAVgt','groundTruthAssignment','pointsPerIter','deltaP','deltaT','sigmaNoiseCam','sigmaNoisePos','sigmaNoiseAccel'};
 runningCorrStruct = cell2struct(cell(1, length(outFields)), outFields, 2);
 iCams=1:M; cropToMinT=false;
 for f = outFields	% Populate output struct with results
