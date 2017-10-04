@@ -10,11 +10,7 @@ function [accelCam] = estimateAccelCamFromPosCam(posUAVcam, accelCam, currTind, 
 	
 	% Save the results of the filter applied at tDerivFilterInds, we will then index it and use from the derivFiltHalfWinSize+1'th point on
 	filteredAccelCam = derivFilter(posUAVcam(:,tDerivFilterInds,:), 2, 1/fps, derivFiltOrder, 2*derivFiltHalfWinSize+1);
-	%if currTind > 1
-		validDerivFilterInds = derivFiltHalfWinSize+1 : length(tDerivFilterInds)-derivFiltHalfWinSize; % Remember to avoid the derivFiltHalfWinSize points on either end of the window
-	%else
-	%	validDerivFilterInds = 1:length(tDerivFilterInds);
-	%end
+	validDerivFilterInds = derivFiltHalfWinSize+1 : length(tDerivFilterInds)-derivFiltHalfWinSize; % Remember to avoid the derivFiltHalfWinSize points on either end of the window
 	
 	% Finally, save the results (in the valid indices)
 	accelCam(:,tDerivFilterInds(validDerivFilterInds),:) = filteredAccelCam(:,validDerivFilterInds,:);

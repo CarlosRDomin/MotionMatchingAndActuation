@@ -114,4 +114,5 @@ function [dirXYZ, maxRho] = findBestWayInDirection(dirXYZ, posUAV, triUppDistAmo
 		maxRho = maxRho(2);
 		dirXYZ = -dirXYZ;
 	end
+	maxRho = max(maxRho, threshRisk/4);
 end

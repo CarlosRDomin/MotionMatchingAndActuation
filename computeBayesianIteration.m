@@ -33,17 +33,9 @@ function [runningWinScore, runningLikelihood, runningPosterior, assignedMatch] =
 			warning('off', 'stats:pdist2:ConstantPoints'); warning('off', 'stats:pdist2:ZeroPoints');	% Disable correlation and cosine pdist2 warnings
 			for iD = 1:length(dims)
 				%runningWinScore(:,:,currT,iD,iW) = ones(N,M) - pdist2(yUAV(:,inds,iD)+eps*rand(N,length(inds),1), yCam(:,inds,iD)+eps*rand(M,length(inds),1), 'correlation'); %'cosine');	% pdist2 produces an MxN matrix (it compares each row in X with each row in Y) so we need to transpose it to get NxM
-				if true
-					%runningWinScore(:,:,currT,iD,iW) = ones(N,M) - pdist2(yUAV(:,inds,iD)-mean(yUAV(:,inds,iD),2, 'omitnan'), yCam(:,inds,iD)-mean(yCam(:,inds,iD),2, 'omitnan'), 'euclidean')./(repmat(sqrt(sum(yUAV(:,inds,iD).^2,2)), 1,M)+repmat(sqrt(sum(yCam(:,inds,iD).^2,2))', N,1));	% pdist2 produces an MxN matrix (it compares each row in X with each row in Y) so we need to transpose it to get NxM
-					runningWinScore(:,:,currT,iD,iW) = ones(N,M) - pdist2(yUAV(:,inds,iD), yCam(:,inds,iD), 'euclidean')./(repmat(sqrt(sum(yUAV(:,inds,iD).^2,2)), 1,M)+repmat(sqrt(sum(yCam(:,inds,iD).^2,2))', N,1));	% pdist2 produces an MxN matrix (it compares each row in X with each row in Y) so we need to transpose it to get NxM
-					%runningWinScore(:,:,currT,iD,iW) = ones(N,M) - pdist2(yUAV(:,inds,iD), yCam(:,inds,iD), 'euclidean')./(sqrt(2)*sqrt(repmat(sum(yUAV(:,inds,iD).^2,2), 1,M)+repmat(sum(yCam(:,inds,iD).^2,2)', N,1)));	% pdist2 produces an MxN matrix (it compares each row in X with each row in Y) so we need to transpose it to get NxM
-				else
-					for n = 1:size(runningWinScore,1)
-						for m = 1:size(runningWinScore,2)
-							runningWinScore(n,m,currT,iD,iW) = max(xcorr(yUAV(n,inds,iD)./sqrt(sum(yUAV(n,inds,iD).^2,2)), yCam(m,inds,iD)./sqrt(sum(yCam(m,inds,iD).^2,2)), 3));
-						end
-					end
-				end
+				%runningWinScore(:,:,currT,iD,iW) = ones(N,M) - pdist2(yUAV(:,inds,iD)-mean(yUAV(:,inds,iD),2, 'omitnan'), yCam(:,inds,iD)-mean(yCam(:,inds,iD),2, 'omitnan'), 'euclidean')./(repmat(sqrt(sum(yUAV(:,inds,iD).^2,2)), 1,M)+repmat(sqrt(sum(yCam(:,inds,iD).^2,2))', N,1));	% pdist2 produces an MxN matrix (it compares each row in X with each row in Y) so we need to transpose it to get NxM
+				runningWinScore(:,:,currT,iD,iW) = ones(N,M) - pdist2(yUAV(:,inds,iD), yCam(:,inds,iD), 'euclidean')./(repmat(sqrt(sum(yUAV(:,inds,iD).^2,2)), 1,M)+repmat(sqrt(sum(yCam(:,inds,iD).^2,2))', N,1));	% pdist2 produces an MxN matrix (it compares each row in X with each row in Y) so we need to transpose it to get NxM
+				%runningWinScore(:,:,currT,iD,iW) = ones(N,M) - pdist2(yUAV(:,inds,iD), yCam(:,inds,iD), 'euclidean')./(sqrt(2)*sqrt(repmat(sum(yUAV(:,inds,iD).^2,2), 1,M)+repmat(sum(yCam(:,inds,iD).^2,2)', N,1)));	% pdist2 produces an MxN matrix (it compares each row in X with each row in Y) so we need to transpose it to get NxM
 			end
 			
 			% Then update the likelihood and posterior, and recompute the optimal id assignment
