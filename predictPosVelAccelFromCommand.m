@@ -29,9 +29,9 @@ function [accel, vel, pos] = predictPosVelAccelFromCommand(commandRho, commandTh
 		% sol = solve([eq1 eq2 eq3], [A B C]);
 		% A = sol.A; B = sol.B; C = sol.C;
 	K = 2*pi.*deltaP./deltaT.^2;
-	A = -(10*(6*deltaT^2.*K - 12*pi.*deltaP + 6*pi*deltaT.*v0 + pi*deltaT^2.*a0))./(deltaT^5*pi);
-	B = (6*(15*deltaT^2.*K - 30*pi.*deltaP + 16*pi*deltaT.*v0 + 3*pi*deltaT^2.*a0))./(deltaT^4*pi);
-	C = -(3*(10*deltaT^2.*K - 20*pi.*deltaP + 12*pi*deltaT.*v0 + 3*pi*deltaT^2.*a0))./(deltaT^3*pi);
+	A = -(10*(6.*v0 + deltaT.*a0))./deltaT^4;
+	B = (6*(16.*v0 + 3*deltaT.*a0))./deltaT^3;
+	C = -(9*(4.*v0 + deltaT.*a0))./deltaT^2;
 	noiseA = cat(2, zeros(numel(commandRho),1,3), cumsum(sigmaEnvironmentNoise/sqrt(numel(tt)-1) .* randn(numel(commandRho), numel(tt)-1, 3), 2)); % Random walk on aa. Sigma of the distance after n points is sqrt(n)*sigmaOrig -> ~68% of the points will be within 0±sqrt(n)*sigmaOrig -> sigmaEnvironmentNoise = sqrt(numel(tt))*sigmaOrig -> sigmaOrig = sigmaEnvironmentNoise/sqrt(numel(tt))
 	
 	% Compute acceleration and decimate to the actual sampling rate

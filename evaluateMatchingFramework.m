@@ -134,7 +134,7 @@ for roomDimensionsCell = {[5, 5, 2.5]} %{[5, 5, 2.5], [15, 10, 3]} % Width x Dep
 						posUAVcam(:,currTind+(1:frameworkWinSize),:) = posUAVgt(:,currTind+(1:frameworkWinSize),:) + sigmaNoiseCam.*randn(M,frameworkWinSize,length(dims));
 						accelUAV(:,currTind+(1:frameworkWinSize),:) = a + sigmaNoiseAccel.*randn(N,frameworkWinSize,length(dims));
 						%for n=1:size(accelUAV,1), for d=1:size(accelUAV,3), accelUAV(n,currTind+(1:frameworkWinSize),d) = sgolayfilt(accelUAV(n,currTind+(1:frameworkWinSize),d), 1, 5); end; end
-						%for n=1:size(accelUAV,1), for d=1:size(accelUAV,3), accelUAV(n,currTind+(1:frameworkWinSize),d) = movingAvgFilter(2, accelUAV(n,currTind+(1:frameworkWinSize),d)); end; end
+						for n=1:size(accelUAV,1), for d=1:size(accelUAV,3), accelUAV(n,currTind+(1:frameworkWinSize),d) = movingAvgFilter(2, accelUAV(n,currTind+(1:frameworkWinSize),d)); end; end
 						accelCam = estimateAccelCamFromPosCam(posUAVcam, accelCam, currTind, derivFiltOrder, derivFiltHalfWinSize, frameworkWinSize, spotterCam.fps);
 						[runningWinScore, runningLikelihood, runningPosterior, assignedMatch] = computeBayesianIteration(runningWinScore, runningLikelihood, runningPosterior, assignedMatch, accelCam, accelUAV, currTind+frameworkWinSize, dims, frameworkWinSize, N, M, derivFiltHalfWinSize, [], normalizationByRowAndColumn);
 						dispImproved(sprintf('\nPosterior likelihood: (@%s, motion="%s", N=%2d, norm=%d, experiment=%2d, currT=%3d)\n%s%s\n', datestr(now, 'HH:MM:SS'), typeOfMotion, N, normalizationByRowAndColumn, experimentRep, currT, [num2str(100.*runningPosterior(:,:,currTind+frameworkWinSize,iW), '%8.2f')'; repmat(13,1,N)], repmat('-',1,50)), 'keepthis');
