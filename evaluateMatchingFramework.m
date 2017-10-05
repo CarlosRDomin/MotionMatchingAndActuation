@@ -16,11 +16,11 @@ deltaP = maxSpeed*deltaT;	% Max distance drones can move during a timestep
 frameworkWinSize = deltaT*spotterCam.fps; iW=1;
 
 normalizationByRowAndColumn = 0; % Regular Bayesian normalization (divide each cell by the sum of its row)
-sigmaNoiseCam = 0.05;	% m, noise in camera's position estimation
-sigmaNoisePos = 0.01;	% m, error in position after performing a motion command
-sigmaNoiseAccel = 0.25;	% m/s2, noise in IMU's accelerometer data
+sigmaNoiseCam = 0.05;			% m, noise in camera's position estimation
+sigmaNoiseMotion = 0.1*deltaT;	% m/s2, error in each UAV's acceleration while performing a motion command
+sigmaNoiseAccel = 0.5;			% m/s2, noise in IMU's accelerometer data
 sigmaLikelihood = 1;
-derivFiltOrder = 4; derivFiltHalfWinSize = 21;
+derivFiltOrder = 4; derivFiltHalfWinSize = 19;
 typeOfExperiment = 'MatchingFramework';
 repsPerExperiment = 20;
 
@@ -34,11 +34,11 @@ for roomDimensionsCell = {[5, 5, 2.5]} %{[5, 5, 2.5], [15, 10, 3]} % Width x Dep
 	for N = 5
 		M = N;
 		for sigmaLikelihood = 1 %[0.05:0.05:0.2 0.25:0.25:1.5]
-			for typeOfMotionCell = {'random', 'lowestRisky', 'oneAtATime', 'hovering', } %{'hovering', 'landed', 'oneAtATime', 'lowestRisky', 'ours'}
+			for typeOfMotionCell = {'oneAtATime', 'lowestRisky', 'hovering', 'random', } %{'hovering', 'landed', 'oneAtATime', 'lowestRisky', 'ours'}
 				typeOfMotion = typeOfMotionCell{:};
 
 				% Initialize struct where we keep all fixed (constant) parameters
-				paramFields = {'typeOfExperiment','typeOfMotion','N','normalizationByRowAndColumn','spotterCam','maxSpeed','deltaT','frameworkWinSize','dims','roomDimensions','threshRisk','sigmaNoiseCam','sigmaNoisePos','sigmaNoiseAccel','sigmaLikelihood','derivFiltOrder','derivFiltHalfWinSize'};
+				paramFields = {'typeOfExperiment','typeOfMotion','N','normalizationByRowAndColumn','spotterCam','maxSpeed','deltaT','frameworkWinSize','dims','roomDimensions','threshRisk','sigmaNoiseCam','sigmaNoiseMotion','sigmaNoiseAccel','sigmaLikelihood','derivFiltOrder','derivFiltHalfWinSize'};
 				paramStruct = cell2struct(cell(1, length(paramFields)), paramFields, 2);
 				for f = paramFields	% Populate param struct
 					paramStruct.(f{:}) = eval(f{:});
@@ -66,19 +66,15 @@ for roomDimensionsCell = {[5, 5, 2.5]} %{[5, 5, 2.5], [15, 10, 3]} % Width x Dep
  					end
 					posUAVgt = cat(2, initPosUAV, NaN(N, length(t)-1, length(dims)));
 					posUAVcam = posUAVgt;
+					velUAVgt = zeros(N, length(t), length(dims));
+					accelUAVgt = zeros(N, length(t), length(dims));
 
 					% Init all other variables
-					accelUAV = cat(2, zeros(N, 1, length(dims)), NaN(N, length(t)-1, length(dims)));
-					accelCam = cat(2, zeros(M, derivFiltHalfWinSize, length(dims)), NaN(M, length(t)-derivFiltHalfWinSize, length(dims)));
-					runningWinScore = cat(3, zeros(N, M, 1, length(dims), length(frameworkWinSize)), NaN(N, M, length(t)-1, length(dims), length(frameworkWinSize)));
-					runningLikelihood = NaN(N, M, length(t), length(frameworkWinSize));
-					if normalizationByRowAndColumn==1, normalizeBy = N+M+1; else, normalizeBy = N; end
-					runningPosterior = cat(3, ones(N, M, 1, length(frameworkWinSize))./normalizeBy, NaN(N, M, length(t)-1, length(frameworkWinSize)));
-					assignedMatch = cat(2, repmat(randperm(N)', 1,1,length(frameworkWinSize)), NaN(N, length(t)-1, length(frameworkWinSize)));
+					[accelUAV, accelCam, runningWinScore, runningLikelihood, runningPosterior, assignedMatch] = initFrameworkVars(N, M, dims, t, frameworkWinSize, derivFiltHalfWinSize, normalizationByRowAndColumn);
 
 					if PLOT_EXPERIMENT
 						figure('Units','normalized', 'Position',[0.3 0.4 0.4 0.25]);
-						plotDronesInRoom(posUAVgt(:,1,:), roomDimensions, spotterCam);
+						plotDronesInRoom(initPosUAV, roomDimensions, spotterCam);
 					end
 
 					for currT = 0 : deltaT : tMax-(1/spotterCam.fps)
@@ -91,6 +87,8 @@ for roomDimensionsCell = {[5, 5, 2.5]} %{[5, 5, 2.5], [15, 10, 3]} % Width x Dep
 							accelCam(:,currTind+1:end,:) = [];
 							posUAVgt(:,currTind+1:end,:) = [];
 							posUAVcam(:,currTind+1:end,:) = [];
+							velUAVgt(:,currTind+1:end,:) = [];
+							accelUAVgt(:,currTind+1:end,:) = [];
 							t(currTind+1:end) = [];
 							runningWinScore(:,:,currTind+1:end,:,:) = [];
 							runningLikelihood(:,:,currTind+1:end,:) = [];
@@ -102,11 +100,12 @@ for roomDimensionsCell = {[5, 5, 2.5]} %{[5, 5, 2.5], [15, 10, 3]} % Width x Dep
 
 						% posUAVcam(:,currTind,:) = posUAVgt(:,currTind,:) + sigmaNoiseCam.*randn(size(posUAVcam(:,currTind,:)));
 						if strcmpi(typeOfMotion, 'landed')
-							posNoise = 0;
+							noiseMotion = 0;
 							a = zeros(N, frameworkWinSize, length(dims));
+							v = zeros(N, frameworkWinSize, length(dims));
 							p = zeros(N, frameworkWinSize, length(dims));
 						else
-							posNoise = sigmaNoisePos;
+							noiseMotion = sigmaNoiseMotion;
 							if strcmpi(typeOfMotion, 'hovering')
 								deltaToInitHoverPoint = squeeze(initPosUAV-posUAVcam(:,currTind,:));
 								[az,el,rho] = cart2sph(deltaToInitHoverPoint(:,1), deltaToInitHoverPoint(:,2), deltaToInitHoverPoint(:,3));
@@ -127,12 +126,15 @@ for roomDimensionsCell = {[5, 5, 2.5]} %{[5, 5, 2.5], [15, 10, 3]} % Width x Dep
 								maxRho = min(maxRho, deltaP); % Make sure it's a feasible command
 								command = reshape([maxRho*((1:N)==mod(currT/deltaT, N)+1); repmat([dirTheta; dirPhi], 1,N)], [],1);
 							end
-							[a,~,p] = predictPosVelAccelFromCommand(command(1:3:end), command(2:3:end), command(3:3:end), spotterCam.fps, 1, deltaT); a=permute(a,3:-1:1); p=permute(p,3:-1:1);
+							[a,v,p] = predictPosVelAccelFromCommand(command(1:3:end), command(2:3:end), command(3:3:end), accelUAVgt(:,currTind,:), velUAVgt(:,currTind,:), posUAVgt(:,currTind,:), spotterCam.fps, deltaT, noiseMotion);
 						end
-						posUAVgt(:,currTind+(1:frameworkWinSize),:) = posUAVgt(:,currTind,:) + p + cumsum(posNoise.*randn(N,frameworkWinSize,length(dims)), 2);
+						accelUAVgt(:,currTind+(1:frameworkWinSize),:) = a;
+						velUAVgt(:,currTind+(1:frameworkWinSize),:) = v;
+						posUAVgt(:,currTind+(1:frameworkWinSize),:) = p;
 						posUAVcam(:,currTind+(1:frameworkWinSize),:) = posUAVgt(:,currTind+(1:frameworkWinSize),:) + sigmaNoiseCam.*randn(M,frameworkWinSize,length(dims));
 						accelUAV(:,currTind+(1:frameworkWinSize),:) = a + sigmaNoiseAccel.*randn(N,frameworkWinSize,length(dims));
-						for n=1:size(accelUAV,1), for d=1:size(accelUAV,3), accelUAV(n,currTind+(1:frameworkWinSize),d) = sgolayfilt(accelUAV(n,currTind+(1:frameworkWinSize),d), 1, 5); end; end
+						%for n=1:size(accelUAV,1), for d=1:size(accelUAV,3), accelUAV(n,currTind+(1:frameworkWinSize),d) = sgolayfilt(accelUAV(n,currTind+(1:frameworkWinSize),d), 1, 5); end; end
+						%for n=1:size(accelUAV,1), for d=1:size(accelUAV,3), accelUAV(n,currTind+(1:frameworkWinSize),d) = movingAvgFilter(2, accelUAV(n,currTind+(1:frameworkWinSize),d)); end; end
 						accelCam = estimateAccelCamFromPosCam(posUAVcam, accelCam, currTind, derivFiltOrder, derivFiltHalfWinSize, frameworkWinSize, spotterCam.fps);
 						[runningWinScore, runningLikelihood, runningPosterior, assignedMatch] = computeBayesianIteration(runningWinScore, runningLikelihood, runningPosterior, assignedMatch, accelCam, accelUAV, currTind+frameworkWinSize, dims, frameworkWinSize, N, M, derivFiltHalfWinSize, [], normalizationByRowAndColumn);
 						dispImproved(sprintf('\nPosterior likelihood: (@%s, motion="%s", N=%2d, norm=%d, experiment=%2d, currT=%3d)\n%s%s\n', datestr(now, 'HH:MM:SS'), typeOfMotion, N, normalizationByRowAndColumn, experimentRep, currT, [num2str(100.*runningPosterior(:,:,currTind+frameworkWinSize,iW), '%8.2f')'; repmat(13,1,N)], repmat('-',1,50)), 'keepthis');
