@@ -6,16 +6,26 @@ function signalOut = derivFilter(signalIn, deriv, dt, poly_order, win_size)
 	if nargin<5 || isempty(win_size)
 		win_size = 21;
 	end
-	%win_half_size = (win_size-1)/2;
+	win_half_size = (win_size-1)/2;
 	
-	[~, diffMatrix] = sgolay(poly_order, win_size);
-	diffVect = factorial(deriv)/(-dt)^deriv .* diffMatrix(:,deriv+1);
+% 	[~, diffMatrix] = sgolay(poly_order, win_size);
+% 	diffVect = factorial(deriv)/(-dt)^deriv .* diffMatrix(:,deriv+1);
+	diffMatrix = sgDerivFilterCoefs(dt*(-win_half_size:win_half_size), poly_order,deriv);
 	signalOut = zeros(size(signalIn));
 	for iSignal = 1:size(signalIn,1)
 		for iDim = 1:size(signalIn,3)
-			signalOut(iSignal,:,iDim) = conv(signalIn(iSignal,:,iDim), diffVect, 'same');
-			%signalOut(iSignal,1:win_half_size,iDim) = reshape(repmat(diffVect', win_half_size,1)*reshape(signalIn(iSignal,1:win_size,iDim), [],1), 1,[]);
-			%signalOut(iSignal,1:win_half_size,iDim) = reshape(repmat(diffVect', win_half_size,1)*reshape(signalIn(iSignal,end-win_size+1:end,iDim), [],1), 1,[]);
+			% Compute steady state
+			signalOut(iSignal,:,iDim) = conv(signalIn(iSignal,:,iDim), diffMatrix(win_half_size+1,:), 'same');
+			
+			% Compute initial transient
+			beginningIndsIn = 1 : min(win_size, size(signalIn,2));
+			beginningIndsOut = 1 : min(win_half_size, size(signalIn,2));
+			signalOut(iSignal,beginningIndsOut,iDim) = reshape(diffMatrix(beginningIndsOut,beginningIndsIn)*reshape(signalIn(iSignal,beginningIndsIn,iDim), [],1), 1,[]);
+			
+			% Compute ending transient
+			endingIndsIn = size(signalIn,2)+1-beginningIndsIn(end:-1:1);
+			endingIndsOut = size(signalIn,2)+1-beginningIndsOut(end:-1:1);
+			signalOut(iSignal,endingIndsOut,iDim) = reshape(diffMatrix(end-numel(endingIndsOut)+1:end,end-numel(endingIndsIn)+1:end)*reshape(signalIn(iSignal,endingIndsIn,iDim), [],1), 1,[]);
 		end
 	end
 end

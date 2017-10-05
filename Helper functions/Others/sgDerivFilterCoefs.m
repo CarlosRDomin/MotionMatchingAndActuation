@@ -1,4 +1,4 @@
-function fc = sgDerivFilterCoefs(x,n,dn,x0,flag)
+function fc = sgDerivFilterCoefs(x,n,dn,x0)
 % FROM: http://www.mathworks.com/matlabcentral/fileexchange/4038-savitzky-golay-smoothing-and-differentiation-filter
 %Function:
 %       Savitzky-Golay Smoothing and Differentiation Filter
@@ -52,19 +52,10 @@ function fc = sgDerivFilterCoefs(x,n,dn,x0,flag)
 %See also:
 %       sglay, sgsdf_2d2
 
-	if nargin<5
-		flag=0;
-	end
-	if nargin<4
-		x0=0;
-	end
-	if nargin<3
-		dn=0;
-	end
-	if nargin<2
-		n=1;
-	end
-
+	x = reshape(x, [],1);
+	if nargin<2 || isempty(n), n = 1; end
+	if nargin<3 || isempty(dn), dn = 0; end
+	if nargin<4 || isempty(x0), x0 = x; end
 
 	if(n>length(x)-1)
 		error('Polynomial Order too Large');    
@@ -73,29 +64,14 @@ function fc = sgDerivFilterCoefs(x,n,dn,x0,flag)
 		error('Differentiation Order too Large!');    
 	end
 
-	if flag
-		x=sym(x);
-		x0=sym(x0);
-	end
-
-	x = reshape(x, [],1);
 	A = x.^[0:n];
-	h = (A'*A)\A';
+	h = permute(repmat((A'*A)\A', 1,1,numel(x0)), [1 3 2]);
 
-	if flag
-		hx=sym([(zeros(1,dn)) prod(1:dn)]);  %order=0:dn-1,& dn,respectively
-		for k=1:n-dn                        %order=dn+1:n=dn+k
-			hx=[hx sym(x0^k*prod(dn+k:-1:k+1))];
-		end    
-	else
-		hx=[(zeros(1,dn)) factorial(dn)];  %order=0:dn-1,& dn,respectively
-		for k=1:n-dn                        %order=dn+1:n=dn+k
-			hx=[hx x0^k*prod(dn+k:-1:k+1)];
-		end    
+	hx = zeros(n+1, numel(x), numel(x0));
+	hx(dn+1, :,:) = factorial(dn);
+	for k=1:n-dn
+		hx(dn+1+k,:,:) = repmat(x0.^k*prod(dn+k:-1:k+1), 1,1,numel(x));
 	end
-	% h
-	% hx
-	hx=repmat(hx',[1,size(h,2)]);
-	h=h.*hx;
-	fc=sum(h);
+	fc = squeeze(sum(h.*hx));
+	if mod(dn,2)>0, fc = -fc; end
 end
