@@ -83,10 +83,6 @@ for roomDimensionsCell = {[8, 5, 3]} %{[5, 5, 2.5], [15, 10, 3]} % Width x Depth
 					% Write the initial positions to a txt file for the Python script if evaluating our actuation in real life
 					if strcmpi(typeOfMotion, 'oursReal')
 						outputFolder = [dataOutputFolder 'Real/Ours/Experiment_' experimentRep '/'];
-						fileID = fopen([outputFolder 'initPos.txt'], 'w');
-						strInitPos = num2str(initPosUAV, '%.3f,');  % Convert initPosUAV to string and save it in a temporary variable so we can remove the trailing ','
-						fprintf(fileID, strcat(strInitPos(:,1:end-1), '\n')');  % Separate rows with a '\n' and transpose (otherwise it would write column-wise)
-						fclose(fileID);
 					else
 						outputFolder = [dataOutputFolder 'Simulations/'];
 					end
