@@ -36,12 +36,12 @@ for roomDimensionsCell = {[8, 5, 3]} %{[5, 5, 2.5], [15, 10, 3]} % Width x Depth
 		for sigmaLikelihood = 1 %[0.05:0.05:0.2 0.25:0.25:1.5]
 			for typeOfMotionCell = {'oursReal', } %'oursSim', 'random', 'hovering', 'oneAtATime', 'lowestRisky', } %{'hovering', 'landed', 'oneAtATime', 'lowestRisky', 'ours'}
 				typeOfMotion = typeOfMotionCell{:};
-				if strcmpi(typeOfMotion, 'oursReal')
+				if startsWith(typeOfMotion,'ours', 'IgnoreCase',true)
 					tMax = 30;
-					movingAvgFiltWinSize = 30;	% For IMU real data
 					ourActuationNumLowRiskIterations = 5;		% Move all in the same dir, diff. amplitude during 5 iterations, then optimally
-					ourActuationNumBestAssignments = ceil(N);	% Number of most likely assignments to consider when generating command
+					ourActuationNumBestAssignments = ceil(N/4);	% Number of most likely assignments to consider when generating command
 					paramsOurActuation = {'ourActuationNumLowRiskIterations', 'ourActuationNumBestAssignments'};
+					if strcmpi(typeOfMotion, 'oursReal'), movingAvgFiltWinSize = 30; else, movingAvgFiltWinSize = 2; end
 				else
 					tMax = 300;
 					movingAvgFiltWinSize = 2;	% For IMU simulated data
@@ -82,7 +82,8 @@ for roomDimensionsCell = {[8, 5, 3]} %{[5, 5, 2.5], [15, 10, 3]} % Width x Depth
 					
 					% Write the initial positions to a txt file for the Python script if evaluating our actuation in real life
 					if strcmpi(typeOfMotion, 'oursReal')
-						outputFolder = [dataOutputFolder 'Real/Ours/Experiment_' experimentRep '/'];
+						outputFolder = [dataOutputFolder 'Real/Ours/experiment' num2str(experimentRep) '/'];
+						if ~mkdir(outputFolder), error(['Couldnt create folder' outputFolder]); end
 					else
 						outputFolder = [dataOutputFolder 'Simulations/'];
 					end
@@ -98,7 +99,8 @@ for roomDimensionsCell = {[8, 5, 3]} %{[5, 5, 2.5], [15, 10, 3]} % Width x Depth
 					for currT = 0 : deltaT : tMax-(1/spotterCam.fps)
 						currTind = currT*spotterCam.fps + 1;
 						currIter = (currT/deltaT) + 1;
-						iterOutputFolder = [outputFolder 'iteration_' num2str(currIter) '/'];
+						iterOutputFolder = [outputFolder 'iteration' num2str(currIter) '/'];
+						if ~mkdir(iterOutputFolder), error(['Couldnt create folder' iterOutputFolder]); end
 
 						% Check for a condition to end the experiment (everyone identified)
 						if testIfExperimentShouldEnd(runningPosterior(:,:,currTind,iW), threshPosteriorsEndsExperiment)
@@ -176,7 +178,6 @@ for roomDimensionsCell = {[8, 5, 3]} %{[5, 5, 2.5], [15, 10, 3]} % Width x Depth
 						
 						% Update pos and accel based on the new command (or wait to receive data from Python if it's a real experiment)
 						if strcmpi(typeOfMotion, 'oursReal')
-							% TODO
 							% First, write the command to a file so Python can tell each drone where to move
 							fileID = fopen([iterOutputFolder 'newCommand.txt'], 'w');
 							commandDeltaP = commandToDeltaP(command(1:3:end), command(2:3:end), command(3:3:end)); % N x 1 x 3
@@ -186,12 +187,13 @@ for roomDimensionsCell = {[8, 5, 3]} %{[5, 5, 2.5], [15, 10, 3]} % Width x Depth
 							fclose(fileID);
 							
 							% Wait for Python to collect data and write log files
+							dispImproved('New command issued, waiting for Python...');
 							while ~exist([iterOutputFolder 'dataCollectionDone.txt'], 'file')
 								pause(1);	% Keep polling every second
 							end
 							
 							% Load logs
-							data = loadRealExperimentData(struct('datetime',{['iteration_' num2str(currIter)]}, 'ch',['exp' num2str(experimentRep)]), outputFolder, derivFiltOrder, 1+2*derivFiltHalfWinSize, movingAvgFiltWinSize);
+							data = loadRealExperimentData(struct('datetime',{['iteration' num2str(currIter)]}, 'ch',['exp' num2str(experimentRep)]), outputFolder, derivFiltOrder, 1+2*derivFiltHalfWinSize, movingAvgFiltWinSize);
 							for n = 1:N
 								ind_start = find(data.drone_id == n, 1);
 								ind_drone_data = ind_start:(ind_start + frameworkWinSize - 1);
