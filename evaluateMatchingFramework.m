@@ -5,11 +5,11 @@
 close all; clear all;
 cdToThisScriptsDirectory;
 
-simOutputFolder = [fileparts(mfilename('fullpath')) '/data/Simulations/'];
+dataOutputFolder = [fileparts(mfilename('fullpath')) '/data/'];
 dims = 1:3;		% 3-axis acceleration
 spotterCam = struct('fps',30, 'FOV',120*pi/180, 'pos',[], 'orient',[1 0 0; 0 0 -1; 0 1 0]);	% Camera's Field Of View in rad (120º), orientation pointing in the direction of the y-axis
 threshRisk = 0.5; % m, how close drones can get to a wall (to avoid going through them or crashing)
-threshPosteriorsEndsExperiment = 0.9999; % End the experiment when all drones are identified with confidence over 99.99%
+threshPosteriorsEndsExperiment = 0.99; % End the experiment when all drones are identified with confidence over 99.99%
 maxSpeed = 1;	% m/s max speed drones can fly at
 deltaT = 1;		% Timestep/iteration: 1s
 deltaP = maxSpeed*deltaT;	% Max distance drones can move during a timestep
@@ -18,27 +18,38 @@ frameworkWinSize = deltaT*spotterCam.fps; iW=1;
 normalizationByRowAndColumn = 0; % Regular Bayesian normalization (divide each cell by the sum of its row)
 sigmaNoiseCam = 0.05;			% m, noise in camera's position estimation
 sigmaNoiseMotion = 0.1*deltaT;	% m/s2, error in each UAV's acceleration while performing a motion command
-sigmaNoiseAccel = 0.5;			% m/s2, noise in IMU's accelerometer data
+sigmaNoiseAccel = 0.25;			% m/s2, noise in IMU's accelerometer data
 sigmaLikelihood = 1;
-derivFiltOrder = 4; derivFiltHalfWinSize = 19;
-typeOfExperiment = 'MatchingFramework';
+derivFiltOrder = 2; derivFiltHalfWinSize = 15;
+typeOfExperiment = 'Actuation';
 repsPerExperiment = 20;
 
 PLOT_EXPERIMENT = false;
 SAVE_EXPERIMENT = false;
 
-for roomDimensionsCell = {[5, 5, 2.5]} %{[5, 5, 2.5], [15, 10, 3]} % Width x Depth x Height of the room in m
+for roomDimensionsCell = {[8, 5, 3]} %{[5, 5, 2.5], [15, 10, 3]} % Width x Depth x Height of the room in m
 	roomDimensions = roomDimensionsCell{:};
 	spotterCam.pos = [roomDimensions(1)/2, -(roomDimensions(1)/2) / tan(spotterCam.FOV/2), roomDimensions(3)/2]; % Need FOV to determine pos
 
-	for N = 5
+	for N = 10
 		M = N;
 		for sigmaLikelihood = 1 %[0.05:0.05:0.2 0.25:0.25:1.5]
-			for typeOfMotionCell = {'oneAtATime', 'lowestRisky', 'hovering', 'random', } %{'hovering', 'landed', 'oneAtATime', 'lowestRisky', 'ours'}
+			for typeOfMotionCell = {'oursReal', } %'oursSim', 'random', 'hovering', 'oneAtATime', 'lowestRisky', } %{'hovering', 'landed', 'oneAtATime', 'lowestRisky', 'ours'}
 				typeOfMotion = typeOfMotionCell{:};
+				if strcmpi(typeOfMotion, 'oursReal')
+					tMax = 30;
+					movingAvgFiltWinSize = 30;	% For IMU real data
+					ourActuationNumLowRiskIterations = 5;		% Move all in the same dir, diff. amplitude during 5 iterations, then optimally
+					ourActuationNumBestAssignments = ceil(N);	% Number of most likely assignments to consider when generating command
+					paramsOurActuation = {'ourActuationNumLowRiskIterations', 'ourActuationNumBestAssignments'};
+				else
+					tMax = 300;
+					movingAvgFiltWinSize = 2;	% For IMU simulated data
+					paramsOurActuation = {};  % Don't save any parameters related to actuation
+				end
 
 				% Initialize struct where we keep all fixed (constant) parameters
-				paramFields = {'typeOfExperiment','typeOfMotion','N','normalizationByRowAndColumn','spotterCam','maxSpeed','deltaT','frameworkWinSize','dims','roomDimensions','threshRisk','sigmaNoiseCam','sigmaNoiseMotion','sigmaNoiseAccel','sigmaLikelihood','derivFiltOrder','derivFiltHalfWinSize'};
+				paramFields = [{'typeOfExperiment','typeOfMotion','N','normalizationByRowAndColumn','spotterCam','maxSpeed','deltaT','frameworkWinSize','dims','roomDimensions','threshRisk','sigmaNoiseCam','sigmaNoiseMotion','sigmaNoiseAccel','sigmaLikelihood','derivFiltOrder','derivFiltHalfWinSize','movingAvgFiltWinSize'}, paramsOurActuation];
 				paramStruct = cell2struct(cell(1, length(paramFields)), paramFields, 2);
 				for f = paramFields	% Populate param struct
 					paramStruct.(f{:}) = eval(f{:});
@@ -48,7 +59,7 @@ for roomDimensionsCell = {[5, 5, 2.5]} %{[5, 5, 2.5], [15, 10, 3]} % Width x Dep
 				variableStruct = cell2struct(cell(0, length(variableFields)), variableFields, 2);
 
 				for experimentRep = 1:repsPerExperiment
-					tMax = 300; t = 0 : 1/spotterCam.fps : tMax;
+					t = 0 : 1/spotterCam.fps : tMax;
 					experimentRanOutOfTime = true; % Initialize this variable to determine if an experiment concluded because all posteriors were above threshPosteriorsEndsExperiment or we ran out of time before that
 					groundTruthAssignment = randperm(N,M)'; groundTruthAssignment=(1:M)'; % Get a random permutation of M elements picked from the set 1:N
 
@@ -68,6 +79,17 @@ for roomDimensionsCell = {[5, 5, 2.5]} %{[5, 5, 2.5], [15, 10, 3]} % Width x Dep
 					posUAVcam = posUAVgt;
 					velUAVgt = zeros(N, length(t), length(dims));
 					accelUAVgt = zeros(N, length(t), length(dims));
+					
+					% Write the initial positions to a txt file for the Python script if evaluating our actuation in real life
+					if strcmpi(typeOfMotion, 'oursReal')
+						outputFolder = [dataOutputFolder 'Real/Ours/Experiment_' experimentRep '/'];
+						fileID = fopen([outputFolder 'initPos.txt'], 'w');
+						strInitPos = num2str(initPosUAV, '%.3f,');  % Convert initPosUAV to string and save it in a temporary variable so we can remove the trailing ','
+						fprintf(fileID, strcat(strInitPos(:,1:end-1), '\n')');  % Separate rows with a '\n' and transpose (otherwise it would write column-wise)
+						fclose(fileID);
+					else
+						outputFolder = [dataOutputFolder 'Simulations/'];
+					end
 
 					% Init all other variables
 					[accelUAV, accelCam, runningWinScore, runningLikelihood, runningPosterior, assignedMatch] = initFrameworkVars(N, M, dims, t, frameworkWinSize, derivFiltHalfWinSize, normalizationByRowAndColumn);
@@ -79,6 +101,8 @@ for roomDimensionsCell = {[5, 5, 2.5]} %{[5, 5, 2.5], [15, 10, 3]} % Width x Dep
 
 					for currT = 0 : deltaT : tMax-(1/spotterCam.fps)
 						currTind = currT*spotterCam.fps + 1;
+						currIter = (currT/deltaT) + 1;
+						iterOutputFolder = [outputFolder 'iteration_' num2str(currIter) '/'];
 
 						% Check for a condition to end the experiment (everyone identified)
 						if testIfExperimentShouldEnd(runningPosterior(:,:,currTind,iW), threshPosteriorsEndsExperiment)
@@ -125,17 +149,78 @@ for roomDimensionsCell = {[5, 5, 2.5]} %{[5, 5, 2.5], [15, 10, 3]} % Width x Dep
 								[maxRho, dirTheta, dirPhi] = estimateLowestRiskyDirOfMotion(reshape(posUAVcam(:,currTind,:), [],size(posUAVcam,3)), roomDimensions, threshRisk);
 								maxRho = min(maxRho, deltaP); % Make sure it's a feasible command
 								command = reshape([maxRho*((1:N)==mod(currT/deltaT, N)+1); repmat([dirTheta; dirPhi], 1,N)], [],1);
+							elseif startsWith(typeOfMotion,'ours', 'IgnoreCase',true)
+								runningPriorTemp = runningPosterior(:,:,currTind,iW);
+								% if ~all(runningPriorTemp(sub2ind(size(runningPriorTemp), (1:N)',assignedMatch(:,currTind,iW))) > 1.5/N)
+								if currIter <= ourActuationNumLowRiskIterations
+									[maxRho, dirTheta, dirPhi] = estimateLowestRiskyDirOfMotion(reshape(posUAVcam(:,currTind,:), [],size(posUAVcam,3)), roomDimensions, threshRisk);
+									maxRho = min(maxRho, deltaP); % Make sure it's a feasible command
+									command = reshape([maxRho*rand(1,N); repmat([dirTheta; dirPhi], 1,N)], [],1);	% All drones move with same dirTheta and dirPhi, random rhos (of up to maxRho)
+								else
+									P_total = 0;
+									expectedCommand = zeros(3*N,1);
+									assignmentList = computeNBestAssignments(ourActuationNumBestAssignments, runningPriorTemp, -log(1e-30),-log(1e-2));
+
+									for i = 1:ourActuationNumBestAssignments
+										assignments = assignmentList(i).matches; unassignedUAVs = assignmentList(i).unassignedUAVs; unassignedDetections = assignmentList(i).unassignedDetections;
+										P_assignment = prod(runningPriorTemp(sub2ind(size(runningPriorTemp), assignments(:,1),assignments(:,2))));
+										if P_assignment<0.1*P_total/(ourActuationNumBestAssignments-1), break; end % Stop if this combination is already unlikely
+										P_total = P_total + P_assignment;
+										%sortedAssignment = sortrows([assignments; [unassignedUAVs(:) NaN(length(unassignedUAVs),1)]]);
+										[command,newP,exitFlag,output] = fmincon(@(x) (-estimateImprovementOfCommand(x,assignments,runningPriorTemp,[],sigmaNoiseAccel,[],spotterCam.fps,deltaT)), ...
+											zeros(3*N,1),[],[],[],[],zeros(3*N,1),repmat([deltaP,2*pi,pi]',N,1), ...
+											@(x) deal(threshRisk-estimateRiskOfCommand(x,assignments,posUAVcam(:,currTind,:), roomDimensions), 0)); %, optimoptions('fmincon', 'Algorithm','active-set'));
+										expectedCommand = expectedCommand + P_assignment.*command;
+									end
+									command = expectedCommand./P_total;
+								end
 							end
 							[a,v,p] = predictPosVelAccelFromCommand(command(1:3:end), command(2:3:end), command(3:3:end), accelUAVgt(:,currTind,:), velUAVgt(:,currTind,:), posUAVgt(:,currTind,:), spotterCam.fps, deltaT, noiseMotion);
 						end
-						accelUAVgt(:,currTind+(1:frameworkWinSize),:) = a;
-						velUAVgt(:,currTind+(1:frameworkWinSize),:) = v;
-						posUAVgt(:,currTind+(1:frameworkWinSize),:) = p;
-						posUAVcam(:,currTind+(1:frameworkWinSize),:) = posUAVgt(:,currTind+(1:frameworkWinSize),:) + sigmaNoiseCam.*randn(M,frameworkWinSize,length(dims));
-						accelUAV(:,currTind+(1:frameworkWinSize),:) = a + sigmaNoiseAccel.*randn(N,frameworkWinSize,length(dims));
-						%for n=1:size(accelUAV,1), for d=1:size(accelUAV,3), accelUAV(n,currTind+(1:frameworkWinSize),d) = sgolayfilt(accelUAV(n,currTind+(1:frameworkWinSize),d), 1, 5); end; end
-						for n=1:size(accelUAV,1), for d=1:size(accelUAV,3), accelUAV(n,currTind+(1:frameworkWinSize),d) = movingAvgFilter(2, accelUAV(n,currTind+(1:frameworkWinSize),d)); end; end
-						accelCam = estimateAccelCamFromPosCam(posUAVcam, accelCam, currTind, derivFiltOrder, derivFiltHalfWinSize, frameworkWinSize, spotterCam.fps);
+						
+						% Update pos and accel based on the new command (or wait to receive data from Python if it's a real experiment)
+						if strcmpi(typeOfMotion, 'oursReal')
+							% TODO
+							% First, write the command to a file so Python can tell each drone where to move
+							fileID = fopen([iterOutputFolder 'newCommand.txt'], 'w');
+							commandDeltaP = commandToDeltaP(command(1:3:end), command(2:3:end), command(3:3:end)); % N x 1 x 3
+							strDeltaP = num2str(commandDeltaP, '%.3f,');  % Convert commandDeltaP to string and save it in a temporary variable so we can remove the trailing ','
+							strCurrentPos = num2str(posUAVgt(:,currTind,:), '%.3f,');  % Convert current positions to string
+							fprintf(fileID, strcat(strCurrentPos, strDeltaP(:,1:end-1), '\n')');  % Separate rows with a '\n' and transpose (otherwise it would write column-wise)
+							fclose(fileID);
+							
+							% Wait for Python to collect data and write log files
+							while ~exist([iterOutputFolder 'dataCollectionDone.txt'], 'file')
+								pause(1);	% Keep polling every second
+							end
+							
+							% Load logs
+							data = loadRealExperimentData(struct('datetime',{['iteration_' num2str(currIter)]}, 'ch',['exp' num2str(experimentRep)]), outputFolder, derivFiltOrder, 1+2*derivFiltHalfWinSize, movingAvgFiltWinSize);
+							for n = 1:N
+								ind_start = find(data.drone_id == n, 1);
+								ind_drone_data = ind_start:(ind_start + frameworkWinSize - 1);
+								for d = 1:size(accelUAV,3)
+									accelUAV(n,currTind+(1:frameworkWinSize),d) = data.a_UAV.(char('X'+d-1)).measured(ind_drone_data);
+									% Take camera data as ground truth (will be copied as posUAVcam and accelCam as well outside the for loop)
+									accelUAVgt(n,currTind+(1:frameworkWinSize),d) = data.a_cam.(char('X'+d-1)).measured(ind_drone_data);
+									velUAVgt(n,currTind+(1:frameworkWinSize),d) = data.v_cam.(char('X'+d-1)).measured(ind_drone_data);
+									posUAVgt(n,currTind+(1:frameworkWinSize),d) = data.p_cam.(char('X'+d-1)).measured(ind_drone_data);
+								end
+							end
+							posUAVcam(:,currTind+(1:frameworkWinSize),:) = posUAVgt(:,currTind+(1:frameworkWinSize),:);
+							accelCam(:,currTind+(1:frameworkWinSize),:) = accelUAVgt(:,currTind+(1:frameworkWinSize),:);
+						else
+							accelUAVgt(:,currTind+(1:frameworkWinSize),:) = a;
+							velUAVgt(:,currTind+(1:frameworkWinSize),:) = v;
+							posUAVgt(:,currTind+(1:frameworkWinSize),:) = p;
+							posUAVcam(:,currTind+(1:frameworkWinSize),:) = posUAVgt(:,currTind+(1:frameworkWinSize),:) + sigmaNoiseCam.*randn(M,frameworkWinSize,length(dims));
+							accelUAV(:,currTind+(1:frameworkWinSize),:) = a + sigmaNoiseAccel.*randn(N,frameworkWinSize,length(dims));
+							%for n=1:size(accelUAV,1), for d=1:size(accelUAV,3), accelUAV(n,currTind+(1:frameworkWinSize),d) = sgolayfilt(accelUAV(n,currTind+(1:frameworkWinSize),d), 1, 5); end; end
+							for n=1:size(accelUAV,1), for d=1:size(accelUAV,3), accelUAV(n,currTind+(1:frameworkWinSize),d) = movingAvgFilter(movingAvgFiltWinSize, accelUAV(n,currTind+(1:frameworkWinSize),d)); end; end
+							accelCam = estimateAccelCamFromPosCam(posUAVcam, accelCam, currTind, derivFiltOrder, derivFiltHalfWinSize, frameworkWinSize, spotterCam.fps);
+						end
+						
+						% Perform matching iteration
 						[runningWinScore, runningLikelihood, runningPosterior, assignedMatch] = computeBayesianIteration(runningWinScore, runningLikelihood, runningPosterior, assignedMatch, accelCam, accelUAV, currTind+frameworkWinSize, dims, frameworkWinSize, N, M, derivFiltHalfWinSize, [], normalizationByRowAndColumn);
 						dispImproved(sprintf('\nPosterior likelihood: (@%s, motion="%s", N=%2d, norm=%d, experiment=%2d, currT=%3d)\n%s%s\n', datestr(now, 'HH:MM:SS'), typeOfMotion, N, normalizationByRowAndColumn, experimentRep, currT, [num2str(100.*runningPosterior(:,:,currTind+frameworkWinSize,iW), '%8.2f')'; repmat(13,1,N)], repmat('-',1,50)), 'keepthis');
 						if PLOT_EXPERIMENT, plotDronesInRoom(posUAVgt(:,currTind+frameworkWinSize,:), roomDimensions, spotterCam); end
@@ -147,8 +232,8 @@ for roomDimensionsCell = {[5, 5, 2.5]} %{[5, 5, 2.5], [15, 10, 3]} % Width x Dep
 						variableStruct(end).(f{:}) = eval(f{:});
 					end
 					% Just in case, save the *.mat (same name, so keep overwriting as we perform more repetitions)
-					if SAVE_EXPERIMENT
-						save_fileName = strjoin([simOutputFolder typeOfExperiment '_' typeOfMotion '_' N 'N_norm' normalizationByRowAndColumn '_' string(roomDimensions).join('x') '.mat'], '');
+					if SAVE_EXPERIMENT || strcmpi(typeOfMotion, 'oursReal')  % Make sure we always save the data on real actuation!! Don't want to have to repeat the experiments...
+						save_fileName = strjoin([outputFolder typeOfExperiment '_' typeOfMotion '_' N 'N_norm' normalizationByRowAndColumn '_' string(roomDimensions).join('x') '.mat'], '');
 						save(save_fileName, 'paramStruct','variableStruct', '-v7.3'); % The flag '-v7.3' allows to save files of size >= 2GB
 						dispImproved(sprintf('Saved simulation results as "%s"\n', save_fileName), 'keepthis');
 					end
