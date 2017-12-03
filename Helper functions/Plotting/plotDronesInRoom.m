@@ -1,4 +1,4 @@
-function h = plotDronesInRoom(posUAVgt, roomDimensions, spotterCamInfo, scatterPtSize)
+function [h, ax] = plotDronesInRoom(posUAVgt, roomDimensions, spotterCamInfo, scatterPtSize)
 	if nargin<3, spotterCamInfo = []; end
 	if nargin<4, scatterPtSize = []; end
 	ax = zeros(1,3); h = zeros(1,3);

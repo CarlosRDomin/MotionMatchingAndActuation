@@ -2,20 +2,16 @@
 % Predicts what the acceleration, velocity and position of drone(s) would be given a polar-coord actuation command
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-function [accel, vel, pos] = predictPosVelAccelFromCommand(commandRho, commandTheta, commandPhi, a0, v0, p0, spotterFps, deltaT, sigmaEnvironmentNoise)
+function [accel, vel, pos] = predictPosVelAccelFromCommand(commandRho, commandTheta, commandPhi, a0, v0, p0, spotterFps, deltaT, sigmaNoiseMotion)
 	if nargin<4 || isempty(a0), a0 = 0; end
 	if nargin<5 || isempty(v0), v0 = 0; end
 	if nargin<6 || isempty(p0), p0 = 0; end
 	if nargin<7 || isempty(spotterFps), spotterFps = 30; end
 	if nargin<8 || isempty(deltaT), deltaT = 1; end
-	if nargin<9 || isempty(sigmaEnvironmentNoise), sigmaEnvironmentNoise = 0.75; end
+	if nargin<9 || isempty(sigmaNoiseMotion), sigmaNoiseMotion = 0.25; end
 	
 	% Compute how much we want to move in each cartesian direction
-	commandRho = reshape(commandRho, [],1);
-	commandTheta = reshape(commandTheta, [],1);
-	commandElev = reshape(pi/2 - commandPhi, [],1);
-	[dx,dy,dz] = sph2cart(commandTheta, commandElev, commandRho); % Convert spherical to cartesian coords
-	deltaP = cat(3, dx, dy, dz); % numel(commandRho) x 1 x 3
+	deltaP = commandToDeltaP(commandRho, commandTheta, commandPhi); % numel(commandRho) x 1 x 3
 
 	t = 1/spotterFps : 1/spotterFps : deltaT;
 	tt = 0 : 1/(10*spotterFps) : deltaT; % Avoid aliasing by generating the signal at a high sample rate
@@ -32,7 +28,7 @@ function [accel, vel, pos] = predictPosVelAccelFromCommand(commandRho, commandTh
 	A = -(10*(6.*v0 + deltaT.*a0))./deltaT^4;
 	B = (6*(16.*v0 + 3*deltaT.*a0))./deltaT^3;
 	C = -(9*(4.*v0 + deltaT.*a0))./deltaT^2;
-	noiseA = cat(2, zeros(numel(commandRho),1,3), cumsum(sigmaEnvironmentNoise/sqrt(numel(tt)-1) .* randn(numel(commandRho), numel(tt)-1, 3), 2)); % Random walk on aa. Sigma of the distance after n points is sqrt(n)*sigmaOrig -> ~68% of the points will be within 0±sqrt(n)*sigmaOrig -> sigmaEnvironmentNoise = sqrt(numel(tt))*sigmaOrig -> sigmaOrig = sigmaEnvironmentNoise/sqrt(numel(tt))
+	noiseA = cat(2, zeros(numel(commandRho),1,3), cumsum(sigmaNoiseMotion/sqrt(numel(tt)-1) .* randn(numel(commandRho), numel(tt)-1, 3), 2)); % Random walk on aa. Sigma of the distance after n points is sqrt(n)*sigmaOrig -> ~68% of the points will be within 0±sqrt(n)*sigmaOrig -> sigmaEnvironmentNoise = sqrt(numel(tt))*sigmaOrig -> sigmaOrig = sigmaEnvironmentNoise/sqrt(numel(tt))
 	
 	% Compute acceleration and decimate to the actual sampling rate
 	aa = a0 + K.*sin(2*pi/deltaT.*tt) + A.*tt.^3 + B.*tt.^2 + C.*tt + noiseA;

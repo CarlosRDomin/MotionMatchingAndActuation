@@ -10,7 +10,7 @@ simOutputFolder = [fileparts(mfilename('fullpath')) '/data/Simulations/'];
 skipProcess = true; % Whether or not to (re)process all the experiment data
 
 % Constants
-confidenceThresholds = 0:0.01:1;
+confidenceThresholds = 0:0.025:1;
 repsPerExperiment = 20;
 threshCollision = 0.25; % Anything closer than 25cm crashes
 numWindowsPerSecond = 1; % Computed as: expData.paramStruct.spotterCam.fps/expData.paramStruct.frameworkWinSize
@@ -29,7 +29,7 @@ if ~skipProcess
 			fileName = fileNameCell{:};
 			fileInfo = strsplit(fileName, '_');
 			if strcmpi(fileInfo{2}, 'processed'), continue; end % Skip processed results
-			if strcmpi(fileInfo{1}, typeOfExperiment) && strcmpi(fileInfo{4}, 'norm0') && strcmpi(fileInfo{5}, roomSize) % Only process files of the right type of experiment
+			if strcmpi(fileInfo{1}, typeOfExperiment) && ~strcmpi(fileInfo{2}, 'landed') && strcmpi(fileInfo{4}, 'norm0') && strcmpi(fileInfo{5}, roomSize) % Only process files of the right type of experiment
 				N = str2double(fileInfo{3}(1:end-1));
 				if ~isfield(experimentsStruct, fileInfo{2}) % Then, arrange the *.mat's according to their motion type (fileInfo{2}, ie. random, hovering, landed...)
 					experimentsStruct.(fileInfo{2}).fileNames = {fileName};	     % Initialize the field if it didn't exist
@@ -57,6 +57,7 @@ if ~skipProcess
 			experimentsStruct.(typeOfMotion).idTime = NaN(size(experimentsStruct.(typeOfMotion).idAccuracy));
 			experimentsStruct.(typeOfMotion).correctIdTime = NaN(size(experimentsStruct.(typeOfMotion).idMOTA));
 			experimentsStruct.(typeOfMotion).numSurvivors = NaN(repsPerExperiment, length(experimentsStruct.(typeOfMotion).N), maxTimeStepsMOTA);
+			experimentsStruct.(typeOfMotion).posteriorToConfidenceMapping = zeros(2, length(experimentsStruct.(typeOfMotion).N), length(confidenceThresholds)-1);
 
 			for fileNameInd = 1:numel(experimentsStruct.(typeOfMotion).fileNames)
 				fileName = experimentsStruct.(typeOfMotion).fileNames{fileNameInd};
@@ -121,6 +122,17 @@ if ~skipProcess
 
 						dispImproved(sprintf('\nProcessing experiment results for motion "%s" and roomSize "%s":  N=%2d (%2d/%2d), experiment=%2d/%2d, confidenceThresh=%3d%%...', typeOfMotion, roomSize, N, fileNameInd, numel(experimentsStruct.(typeOfMotion).fileNames), experimentInd, length(expData.variableStruct), round(100*confidenceThresh)));
 					end
+					
+					% Update the posterior -> confidence mapping
+					actualPosterior = expData.variableStruct(experimentInd).runningPosterior(:,:,1:expData.paramStruct.frameworkWinSize:end);
+					actualAssignedMatch = expData.variableStruct(experimentInd).assignedMatch(:,1:expData.paramStruct.frameworkWinSize:end);
+					assignedPosteriorInds = sub2ind(size(actualPosterior), repmat(1:N, 1,size(actualPosterior, 3)), reshape(actualAssignedMatch, 1,[]), reshape(repmat(1:size(actualPosterior,3), size(actualAssignedMatch,1),1), 1,[]));
+					assignedPosteriors = NaN(size(actualAssignedMatch)); assignedPosteriors(~isnan(assignedPosteriorInds)) = actualPosterior(assignedPosteriorInds(~isnan(assignedPosteriorInds)));
+					cntTotal = histcounts(assignedPosteriors, confidenceThresholds);
+					incorrectAssignments = actualAssignedMatch~=repmat(expData.variableStruct(experimentInd).groundTruthAssignment, 1,size(actualAssignedMatch,2));
+					assignedPosteriors(incorrectAssignments) = NaN;
+					cntCorrect = histcounts(assignedPosteriors, confidenceThresholds);
+ 					experimentsStruct.(typeOfMotion).posteriorToConfidenceMapping(:,Nind,:) = experimentsStruct.(typeOfMotion).posteriorToConfidenceMapping(:,Nind,:) + permute([cntCorrect; cntTotal], [1 3 2]);
 
 					% Compute the pairwise distance between all drones at all time instants
 					distAmongDrones = zeros(N*(N-1)/2, actualTimeIndsMOTA(end));
@@ -195,15 +207,15 @@ if false
 	iCam = 1;
 	for i = 1:length(data)
 		ax(1,i) = subplot(2,length(data),i); plot(data(i).a_UAV.(strAx).t(tIndsUAV{i})-tLims(1), data(i).a_UAV.(strAx).measured(tIndsUAV{i}), 'LineWidth',lWidth);
-		hold on; plot(data(iCam).a_cam.(strAx).t(tIndsCam{iCam})-tLims(1), data(iCam).a_cam.(strAx).measured(tIndsCam{iCam}), '.', 'Color',[0.83,0,0.1], 'LineWidth',lWidth);
+		hold on; plot(data(iCam).a_cam.(strAx).t(tIndsCam{iCam})-tLims(1), data(iCam).a_cam.(strAx).measured(tIndsCam{iCam}), ':', 'Color',[0.83,0,0.1], 'LineWidth',lWidth*1.25);
 
-		ax(2,i) = subplot(2,length(data),i+length(data)); plot(runningCorrStruct.t, squeeze(runningCorrStruct.runningPosterior(i,iCam,:)), 'LineWidth',2, 'Color',[0.5,0.18,0.55]);
+		ax(2,i) = subplot(2,length(data),i+length(data)); plot(runningCorrStruct.t, squeeze(runningCorrStruct.runningPosterior(i,iCam,:)), 'LineWidth',2, 'Color',[0.93,0.69,0.125]);
 	end
 
 	xlim(ax(:), [0 diff(tLims)]); ylim(ax(1,:), 1.*[-1 1]); ylim(ax(2,:), [0 1]); yticks(ax(2,:), [0,1]); set(ax(:), 'Box','on', 'FontSize',fSizeAxes);
 	for i=1:2, for j=1:length(data), set(ax(i,j), 'Position', get(ax(i,j),'Position')+[0 0.08 0 -0.02]); end; end
 	for i =1:length(data), suplabel('Time (s)', 'x', ax(:,i), 0, 'FontSize',fSizeLabels); end
-	suplabel({'Accel.','(m/s^2)'}, 'y', ax(1,:), 0.005, 'FontSize',fSizeLabels); suplabel({'Posterior','P(E_1\leftrightarrowD_j|Data)'}, 'y', ax(2,:), 0.0, 'FontSize',fSizeLabels);
+	suplabel({'Accel.','(m/s^2)'}, 'y', ax(1,:), 0.005, 'FontSize',fSizeLabels); suplabel({'Posterior','P(\theta_{i,j}|D^t)'}, 'y', ax(2,:), 0.0, 'FontSize',fSizeLabels);
 	l=legend(ax(1,end), {' {\bfa}_{Dj}', ' {\bfa}_{E1}'}, 'Orientation','vertical', 'FontSize',fSizeAxes-1); set(l, 'Units','normalized', 'Position',[0.926 0.8 0.045 0.05]);
 	saveFigToFile('iterativeUpdate');
 end
@@ -250,7 +262,7 @@ if false
 end
 
 %% Plot MOTA and survivors vs type of motion over time
-if true
+if false
 	lWidth = 3; lWidthErr = 1; fSizeLabels = 17; fSizeAxes = 13.5;
 	tEnd = 100;
 	for roomSizeCell = {'5x5x2.5.mat'} %{'5x5x2.5.mat', '15x10x3.mat'}
@@ -279,13 +291,13 @@ if true
 				% Plot MOTA
 				ax(1) = subplot(2,1,1); hold on;
 				h(1,NarrInd) = errorbar(t, MOTAmean(Nind,:), MOTAstd(Nind,:), 'LineWidth',lWidthErr);
-				plot(t, MOTAmean(Nind,:), 'LineWidth',lWidthErr, 'Color',get(h(1,NarrInd),'Color'));
+				plot(t, MOTAmean(Nind,:), 'LineWidth',lWidth, 'Color',get(h(1,NarrInd),'Color'));
 				xlim([0,tEnd]); ylim([0 1]); ylabel('MOTA (%)', 'FontSize',fSizeLabels+1);
 
 				% Plot survival rate
 				ax(2) = subplot(2,1,2); hold on;
 				h(2,NarrInd) = errorbar(t, numSurvivorsMean(Nind,:), numSurvivorsStd(Nind,:), 'LineWidth',lWidthErr);
-				plot(t, numSurvivorsMean(Nind,:), 'LineWidth',lWidthErr, 'Color',get(h(2,NarrInd),'Color'));
+				plot(t, numSurvivorsMean(Nind,:), 'LineWidth',lWidth, 'Color',get(h(2,NarrInd),'Color'));
 				xlim([0,tEnd]); ylim([-0.05 1.05]); ylabel('Survival rate (%)', 'FontSize',fSizeLabels+1);
 			end
 
@@ -295,6 +307,149 @@ if true
 			saveFigToFile(['MOTAandSurvivalOverTimeForDifferentN_' typeOfMotion]);
 		end
 	end
+end
+
+%% Plot posterior vs confidence
+if true
+	lWidth = 2; fSizeLabels = 17; fSizeAxes = 14;
+	tEnd = 100;
+	for roomSizeCell = {'5x5x2.5.mat'} %{'5x5x2.5.mat', '15x10x3.mat'}
+		roomSize = roomSizeCell{:};
+		processedResultsFileName = [simOutputFolder typeOfExperiment '_processed_' roomSize];
+		load(processedResultsFileName);
+		typeOfMotionCell = fieldnames(experimentsStruct)';
+		N = 5:5:20;
+		cntCorrect = zeros(length(N), length(confidenceThresholds)-1);
+		cntTotal = zeros(size(cntCorrect));
+
+		% Compute accuracy
+		for NarrInd = 1:numel(N)
+			Nind = N(NarrInd);%-1;
+			for typeOfMotionInd = 1:numel(typeOfMotionCell)
+				typeOfMotion = typeOfMotionCell{typeOfMotionInd};
+				cntCorrect(NarrInd,:) = cntCorrect(NarrInd,:) + reshape(experimentsStruct.(typeOfMotion).posteriorToConfidenceMapping(1,Nind,:), 1,[]);
+				cntTotal(NarrInd,:) = cntTotal(NarrInd,:) + reshape(experimentsStruct.(typeOfMotion).posteriorToConfidenceMapping(2,Nind,:), 1,[]);
+			end
+		end
+		cntTotal(cntTotal<30)=0;
+		
+		% Plot results
+		figure('Units','pixels', 'Position',[200 200, 560 140]); hold on;
+		plot(confidenceThresholds(1:end-1)+0.5*diff(confidenceThresholds), cntCorrect./cntTotal, 'LineWidth',lWidth);
+		legend(cellstr(strcat('N=',num2str((N)'))), 'Orientation','vertical', 'FontSize',fSizeAxes, 'Location','SouthEast');
+
+		xlim([0,1]); ylim([0 1]); xlabel('Posterior (%)', 'FontSize',fSizeLabels+1); ylabel('Confidence (%)', 'FontSize',fSizeLabels+1);
+		set(gca, 'Box','on', 'FontSize',fSizeAxes);
+		saveFigToFile(['posteriorVsConfidence']);
+	end
+end
+
+%% Plot MOTA and survivors vs different actuation switches over time
+if false
+	lWidth = 3; lWidthErr = 1; fSizeLabels = 17; fSizeAxes = 13.5;
+	tEnd = 100;
+	N = 20;
+	Q = [2 4 8 16 32];
+	roomSize = '5x5x2.5.mat';
+	typeOfMotion = 'hovering'; %'ours';
+	processedResultsFileName = [simOutputFolder typeOfExperiment '_processed_' roomSize];
+	load(processedResultsFileName);
+	
+	figure('Units','pixels', 'Position',[200 200, 560 375]);
+	ax = gobjects(2,1); h = gobjects(2,numel(Q));
+
+	% Compute MOTA and numSurvivors stats (mean, std)
+	MOTAmean = squeeze(mean(experimentsStruct.(typeOfMotion).idMOTA(:,:,1,:), 1, 'omitnan')); MOTAmean(:)=0;
+	MOTAstd = squeeze(std(experimentsStruct.(typeOfMotion).idMOTA(:,:,1,:), 0,1, 'omitnan')); MOTAstd(:)=0;
+	numSurvivorsMean = squeeze(mean(experimentsStruct.(typeOfMotion).numSurvivors, 1, 'omitnan')); numSurvivorsMean(:)=0;
+	numSurvivorsStd = squeeze(std(experimentsStruct.(typeOfMotion).numSurvivors, 0,1, 'omitnan')); numSurvivorsStd(:)=0;
+	t = (0:size(numSurvivorsMean,2)-1) / numWindowsPerSecond;
+
+	for Qind = 1:numel(Q)
+
+		% Plot MOTA
+		ax(1) = subplot(2,1,1); hold on;
+% 		errorbar(t, MOTAmean(Nind,:), MOTAstd(Nind,:), 'LineWidth',lWidthErr);
+		h(1,Qind) = plot(t, MOTAmean(Qind,:), 'LineWidth',lWidth); %, 'Color',get(h(1,NarrInd),'Color'));
+		xlim([0,tEnd]); ylim([0 1]); ylabel('MOTA (%)', 'FontSize',fSizeLabels+1);
+
+		% Plot survival rate
+		ax(2) = subplot(2,1,2); hold on;
+% 		h(2,NarrInd) = errorbar(t, numSurvivorsMean(Nind,:), numSurvivorsStd(Nind,:), 'LineWidth',lWidthErr);
+% 		plot(t, numSurvivorsMean(Nind,:), 'LineWidth',lWidth, 'Color',get(h(2,NarrInd),'Color'));
+		xlim([0,tEnd]); ylim([-0.05 1.05]); ylabel('Survival rate (%)', 'FontSize',fSizeLabels+1);
+	end
+
+	suplabel('Time (s)', 'x', ax(:), -0.01, 'FontSize',fSizeLabels);
+	set(ax(:), 'Box','on', 'FontSize',fSizeAxes);
+ 	l=legend(h(1,:), cellstr(strcat('Q=',num2str((Q)'))), 'Orientation','horizontal', 'FontSize',fSizeAxes); set(l, 'Units','normalized', 'Position',[0.17 0.494 0.7 0]);
+	saveFigToFile('MOTAandSurvivalOverTimeForDifferentQ');
+end
+
+%% Plot raw accel for real vs simulation
+if true
+	data = loadRealExperimentData(struct('datetime',{'2017-02-19 17-59-23','2017-02-19 18-01-29','2017-02-19 18-22-23','2017-02-19 18-24-25'}, 'ch','75')); % '2017-02-19 17-59-23','2017-02-19 18-01-29','2017-02-19 18-22-23','2017-02-19 18-24-25'
+	d = 3; strAx = char('X'+d-1); % z-axis
+	runningCorrStruct = runMatchingFrameworkOnGivenData(data, [], [], 12, d);
+	tLims = [0 30]; %data.a_cam.(strAx).t(end) - [35 5];
+	tIndsCam = cell(1,length(data)); tIndsUAV = cell(1,length(data));
+	for i = 1:length(data)
+		tIndsCam{i} = find(tLims(1) <= data(i).a_cam.(strAx).t & data(i).a_cam.(strAx).t <= tLims(2));
+		tIndsUAV{i} = find(tLims(1) <= data(i).a_UAV.(strAx).t & data(i).a_UAV.(strAx).t <= tLims(2));
+	end
+	N = 4; Nind = N-1;
+	roomSize = '5x5x2.5.mat';
+	typeOfMotion = 'random';
+	aux = load([simOutputFolder 'MatchingFramework_simulation_4N_norm0_8x5x2.5.mat']);
+	lWidth = 2.5; fSizeLabels = 15; fSizeAxes = 13.5;
+
+	ax = gobjects(2,length(data));
+	figure('Units','pixels', 'Position',[200 200, 1000 210]);
+	iCam = 1;
+	for i = 1:length(data)
+		ax(1,i) = subplot(2,length(data),i); plot(data(i).a_UAV.(strAx).t(tIndsUAV{i})-tLims(1), data(i).a_UAV.(strAx).measured(tIndsUAV{i}), 'LineWidth',lWidth);
+		hold on; plot(data(i).a_cam.(strAx).t(tIndsCam{i})-tLims(1), data(i).a_cam.(strAx).measured(tIndsCam{i}), 'Color',[0.83,0,0.1], 'LineWidth',lWidth*0.8);
+
+		ax(2,i) = subplot(2,length(data),i+length(data)); plot(aux.variableStruct(1).t, aux.variableStruct(1).accelUAV(i,:,d), 'LineWidth',lWidth);
+		hold on; plot(aux.variableStruct(1).t, aux.variableStruct(1).accelCam(i,:,d), '-', 'Color',[0.83,0,0.1], 'LineWidth',lWidth*0.8);
+	end
+
+	xlim(ax(:), [0 diff(tLims)]); ylim(ax(:), 1.*[-1 1]); set(ax(:), 'Box','on', 'FontSize',fSizeAxes);
+	for i=1:2, for j=1:length(data), set(ax(i,j), 'Position', get(ax(i,j),'Position')+[0 0.08 0 -0.02]); end; end
+	for i =1:length(data), suplabel('Time (s)', 'x', ax(:,i), 0, 'FontSize',fSizeLabels); end
+	suplabel({'REAL','accel. (m/s^2)'}, 'y', ax(1,:), 0.005, 'FontSize',fSizeLabels); suplabel({'SIMULATION','accel. (m/s^2)'}, 'y', ax(2,:), 0.005, 'FontSize',fSizeLabels);
+	l=legend(ax(1,end), {' {\bfa}_{Dj}', ' {\bfa}_{E1}'}, 'Orientation','vertical', 'FontSize',fSizeAxes-1); set(l, 'Units','normalized', 'Position',[0.926 0.8 0.045 0.05]);
+	l=legend(ax(2,end), {' {\bfa}_{Dj}', ' {\bfa}_{E1}'}, 'Orientation','vertical', 'FontSize',fSizeAxes-1); set(l, 'Units','normalized', 'Position',[0.926 0.32 0.045 0.05]);
+	saveFigToFile('rawAccelRealVsSim');
+end
+
+%% Plot MOTA over time for real vs simulation
+if false
+	lWidth = 3; lWidthErr = 1; fSizeLabels = 17; fSizeAxes = 13.5;
+	tEnd = 100;
+	N = 5; Nind = N-1;
+	roomSize = '5x5x2.5.mat';
+	typeOfMotion = 'random';
+	processedResultsFileName = [simOutputFolder typeOfExperiment '_processed_' roomSize];
+	load(processedResultsFileName);
+	
+	figure('Units','pixels', 'Position',[200 200, 560 200]);
+
+	% Compute MOTA and numSurvivors stats (mean, std)
+	MOTAmean = squeeze(mean(experimentsStruct.(typeOfMotion).idMOTA(:,:,1,:), 1, 'omitnan')); MOTAmean(:)=0;
+	MOTAstd = squeeze(std(experimentsStruct.(typeOfMotion).idMOTA(:,:,1,:), 0,1, 'omitnan')); MOTAstd(:)=0;
+	t = (0:size(MOTAmean,4)-1) / numWindowsPerSecond;
+
+	hold on;
+% 	errorbar(t, MOTAmean(Nind,:), MOTAstd(Nind,:), 'LineWidth',lWidthErr);
+	plot(t, MOTAmean(Nind,:), 'LineWidth',lWidth); %, 'Color',get(h(1,NarrInd),'Color'));
+	xlim([0,tEnd]); ylim([0 1]); ylabel('MOTA (%)', 'FontSize',fSizeLabels+1);
+
+	xlabel('Time (s)', 'FontSize',fSizeLabels);
+	set(gca, 'Box','on', 'FontSize',fSizeAxes);
+	legend({'Real experiments', 'Simulation'}, 'FontSize',fSizeAxes, 'Location','SouthEast');
+%  	l=legend(h(1,:), cellstr(strcat('Q=',num2str((Q)'))), 'Orientation','horizontal', 'FontSize',fSizeAxes); set(l, 'Units','normalized', 'Position',[0.17 0.494 0.7 0]);
+	saveFigToFile('MOTAForRealVsSim');
 end
 return
 

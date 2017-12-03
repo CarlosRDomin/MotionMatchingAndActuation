@@ -11,6 +11,9 @@ function data = loadRealExperimentData(logInfo, logFolder, derivPolyOrder, deriv
     
     data = repmat(cell2struct([repmat({cell2struct(cell(3,1), magnitudes)}, 6,1); cell(2,1)], {'a_cam','a_UAV','gyro_UAV','a_cam_orig','a_UAV_orig','gyro_UAV_orig', 'tInterv', 'tCropInds'}), length({logInfo.datetime}), 1);
     for j = 1:length({logInfo.datetime})
+		drone_id_filename = [logFolder '/' logInfo(j).datetime '/log_droneId_' logInfo(j).ch '_' strrep(logInfo(j).datetime, ' ','_') '.npz'];
+		if exist(drone_id_filename, 'file'), drone_id_orig = readNPZ(drone_id_filename); else, drone_id_orig = []; end
+
         for i = 1:size(magnitudes,1)
 			% Read logs from files
 			pos_cam_orig = readNPZ([logFolder '/' logInfo(j).datetime '/log_p' magnitudes{i} '_cam_' logInfo(j).ch '_' strrep(logInfo(j).datetime, ' ','_') '.npz']);
@@ -30,6 +33,7 @@ function data = loadRealExperimentData(logInfo, logFolder, derivPolyOrder, deriv
             %xl = [accel_cam_orig.tFloat((derivWinSize+1)/2), accel_UAV_orig.tFloat(end-(3*derivWinSize-1)/2)];
             tCropInds = (accel_cam_orig.tFloat>=xl(1) & accel_cam_orig.tFloat<=xl(2));
             tCropIndsUAV = (accel_UAV_orig.tFloat>=xl(1) & accel_UAV_orig.tFloat<=xl(2));
+			if ~isempty(drone_id_orig), drone_id_crop = struct('tFloat',drone_id_orig.tFloat(tCropInds), 't',drone_id_orig.tFloat(tCropInds)-drone_id_orig.tFloat(find(tCropInds,1)) , 'measured',drone_id_orig.measured(tCropInds)); end
 			pos_cam_crop = struct('tFloat',pos_cam_orig.tFloat(tCropInds), 't',pos_cam_orig.tFloat(tCropInds)-pos_cam_orig.tFloat(find(tCropInds,1)) , 'measured',pos_cam_orig.measured(tCropInds));
 			vel_cam_crop = struct('tFloat',vel_cam_orig.tFloat(tCropInds), 't',vel_cam_orig.tFloat(tCropInds)-vel_cam_orig.tFloat(find(tCropInds,1)) , 'measured',vel_cam_orig.measured(tCropInds));
 			accel_cam_crop = struct('tFloat',accel_cam_orig.tFloat(tCropInds), 't',accel_cam_orig.tFloat(tCropInds)-accel_cam_orig.tFloat(find(tCropInds,1)) , 'measured',accel_cam_orig.measured(tCropInds));
@@ -50,6 +54,7 @@ function data = loadRealExperimentData(logInfo, logFolder, derivPolyOrder, deriv
             data(j).gyro_UAV_orig.(magnitudes{i}) = gyro_UAV_orig;
             data(j).tInterv = xl;
             data(j).tCropInds = tCropInds;
-        end
+		end
+		if ~isempty(drone_id_orig), data(j).drone_id = drone_id_crop; end
     end
 end

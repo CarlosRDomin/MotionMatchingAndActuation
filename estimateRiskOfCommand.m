@@ -9,5 +9,5 @@ function [risk, distAmongDrones, distToWalls] = estimateRiskOfCommand(command, a
 	newPosUAV(assignments(:,2),:) = posUAV(assignments(:,2),:) + [dx,dy,dz];
 	distAmongDrones = pdist(newPosUAV);
 	distToWalls = [newPosUAV - zeros(size(newPosUAV)), repmat(roomDimensions, size(newPosUAV,1),1) - newPosUAV];
-	risk = min(distAmongDrones); % min([distAmongDrones(:); distToWalls(:)]);
+	risk = min([distAmongDrones(:); distToWalls(:)]);
 end

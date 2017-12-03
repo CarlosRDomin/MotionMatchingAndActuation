@@ -20,7 +20,7 @@ function [runningCorrStruct] = plotExperimentResults(runningCorrStruct, whatToPl
 		catch
 			if nargin<3 || isempty(data)	% Only load data if it hasn't been loaded yet (saves time)
 				%data = loadRealExperimentData(struct('datetime',{'2017-02-19 17-14-15','2017-02-19 17-56-48','2017-02-19 17-59-23','2017-02-19 18-01-29','2017-02-19 18-22-23','2017-02-19 18-24-25'}, 'ch','75'));
-				data = loadRealExperimentData(struct('datetime',{'2017-02-19 17-56-48','2017-02-19 17-59-23','2017-02-19 18-01-29','2017-02-19 18-22-23','2017-02-19 18-24-25'}, 'ch','75'));
+				data = loadRealExperimentData(struct('datetime',{'2017-02-19 17-56-48','2017-02-19 17-59-23','2017-02-19 18-01-29','2017-02-19 18-22-23','2017-10-06 02-54-01'}, 'ch','75'));
 			end
 			runningCorrStruct = runMatchingFrameworkOnGivenData(data, [1 2 3 4 5], [1 2 3 4 5], [5:5:15 30:30:300]);	%(data, iCam=1:length(data), frameworkWinSize, dims=1:3, cropToMinT=true)
 			save('runningCorrStruct.mat','runningCorrStruct');
