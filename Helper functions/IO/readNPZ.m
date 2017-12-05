@@ -4,7 +4,6 @@ function data = readNPZ(filename)
 	unzip(filename, zipFolder);
 	outFiles = dir(zipFolder); outFiles = outFiles(3:end);	% Ignore '.' and '..'
     data = cell(length(outFiles), 2);
-% 	data = struct();
 
 	warnV = warning('query', 'verbose'); warning('off','verbose');	% Adjust warning settings to be less annoying (settings will be reset later on)
 	warnB = warning('query', 'backtrace'); warning('off','backtrace');
@@ -14,10 +13,9 @@ function data = readNPZ(filename)
 		try
 			y = readNPY([zipFolder '/' f]);
 		catch
-			warning(['Couldn''t load magnitude ''' magnitude ''', make sure its format is valid (eg, datetime is not allowed, should convert to float first)']);
+% 			warning(['Couldn''t load magnitude ''' magnitude ''', make sure its format is valid (eg, datetime is not allowed, should convert to float first)']);
 			y = '<Error loading>';
 		end
-% 		data.(magnitude) = y;
         data(i,:) = {magnitude, y};
 	end
 	rmdir(zipFolder, 's'); % Remove folder and its contents ('s' argument)

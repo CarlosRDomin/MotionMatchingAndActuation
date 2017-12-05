@@ -5,7 +5,7 @@
 function data = loadRealExperimentData(logInfo, logFolder, derivPolyOrder, derivWinSize, movingAvgFiltWinSize)
 	if nargin<2 || isempty(logFolder), logFolder = [fileparts(mfilename('fullpath')) '/../../data/Real']; end
 	if nargin<3 || isempty(derivPolyOrder), derivPolyOrder = 2; end
-	if nargin<4 || isempty(derivWinSize), derivWinSize = 1 + 2*10; end
+	if nargin<4 || isempty(derivWinSize), derivWinSize = 1 + 2*11; end
 	if nargin<5 || isempty(movingAvgFiltWinSize), movingAvgFiltWinSize = 30; end
     magnitudes = {'X'; 'Y'; 'Z'};
     
@@ -13,7 +13,11 @@ function data = loadRealExperimentData(logInfo, logFolder, derivPolyOrder, deriv
     for j = 1:length({logInfo.datetime})
 		if ~isempty(logInfo(j).ch), logInfo(j).ch = [logInfo(j).ch '_']; end % Channel info migth be empty, don't add a '_' in that case
 		drone_id_filename = [logFolder '/' logInfo(j).datetime '/log_droneId_' logInfo(j).ch strrep(logInfo(j).datetime, ' ','_') '.npz'];
-		if exist(drone_id_filename, 'file'), drone_id_orig = readNPZ(drone_id_filename); else, drone_id_orig = []; end
+		drone_id_orig = []; drone_id_tStart = NaN;
+		if exist(drone_id_filename, 'file')
+			drone_id_orig = readNPZ(drone_id_filename);
+			if length(drone_id_orig.tFloat) == 2, drone_id_tStart = drone_id_orig.tFloat(2); end
+		end
 
         for i = 1:size(magnitudes,1)
 			% Read logs from files
@@ -31,7 +35,7 @@ function data = loadRealExperimentData(logInfo, logFolder, derivPolyOrder, deriv
 			accel_cam_orig.measured = derivFilter(reshape(pos_cam_orig.measured, 1,[]), 2, mean(diff(pos_cam_orig.tFloat)), derivPolyOrder, derivWinSize);
 
 			% Crop the variables according to accel_cam_orig.tFloat
-            xl = [accel_cam_orig.tFloat(1), accel_UAV_orig.tFloat(end)];
+            xl = [max(drone_id_tStart,accel_cam_orig.tFloat(1)), accel_UAV_orig.tFloat(end)];
             %xl = [accel_cam_orig.tFloat((derivWinSize+1)/2), accel_UAV_orig.tFloat(end-(3*derivWinSize-1)/2)];
             tCropInds = (accel_cam_orig.tFloat>=xl(1) & accel_cam_orig.tFloat<=xl(2));
             tCropIndsUAV = (accel_UAV_orig.tFloat>=xl(1) & accel_UAV_orig.tFloat<=xl(2));
