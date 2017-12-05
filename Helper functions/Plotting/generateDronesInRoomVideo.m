@@ -5,6 +5,8 @@ function generateDronesInRoomVideo(videoName, posUAVgtOrExperimentInfo, roomDime
 		posUAVgt = expData.variableStruct(experimentInd).posUAVgt; % Populate fields from the data
 		roomDimensions = expData.paramStruct.roomDimensions;
 		spotterCam = expData.paramStruct.spotterCam;
+		spotterCam.orient = [0 1 0; 0 0 -1; -1 0 0];
+		spotterCam.pos = [roomDimensions(1) + (roomDimensions(1)/2) / tan(spotterCam.FOV/2), roomDimensions(2)/2, roomDimensions(3)/2];
 	else % Otherwise, posUAVgtOrExperimentInfo is in fact the posUAVgt to visualize
 		posUAVgt = posUAVgtOrExperimentInfo;
 	end
@@ -27,8 +29,8 @@ function generateDronesInRoomVideo(videoName, posUAVgtOrExperimentInfo, roomDime
 	for k=1:size(posUAVgt,2)
 		dispImproved(sprintf('Processing video frame %4d out of %4d (%6.2f%%)', k, size(posUAVgt,2), 100*k/size(posUAVgt,2)));
 		pause(1/spotterCam.fps);
-		set(h, 'XData',posUAVgt(:,k,1), 'YData',posUAVgt(:,k,2), 'ZData',posUAVgt(:,k,3));
-		set(hTitle, 'Title',['Time: ' num2str(k/spotterCam.fps, '%.2f')]);
+		set(h, 'XData',posUAVgt(:,k,1), 'YData',posUAVgt(:,k,2), 'ZData',posUAVgt(:,k,3)+0.3);
+		set(hTitle, 'String',['Time: ' num2str(k/spotterCam.fps, '%.2f')]);
 		if saveVideo
 			saveas(gcf, tempFrameName);
 			writeVideo(v,imread(tempFrameName));

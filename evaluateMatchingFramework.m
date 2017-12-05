@@ -7,7 +7,7 @@ cdToThisScriptsDirectory;
 
 dataOutputFolder = [fileparts(mfilename('fullpath')) '/data/'];
 dims = 1:3;		% 3-axis acceleration
-spotterCam = struct('fps',30, 'FOV',120*pi/180, 'pos',[], 'orient',[1 0 0; 0 0 -1; 0 1 0]);	% Camera's Field Of View in rad (120º), orientation pointing in the direction of the y-axis
+spotterCam = struct('fps',30, 'FOV',120*pi/180, 'pos',[], 'orient',[0 1 0; 0 0 -1; -1 0 0]);	% Camera's Field Of View in rad (120º), orientation pointing in the direction of the y-axis
 threshRisk = 0.2; % m, how close drones can get to a wall (to avoid going through them or crashing)
 threshPosteriorsEndsExperiment = 0.99; % End the experiment when all drones are identified with confidence over 99.99%
 maxSpeed = 1;	% m/s max speed drones can fly at
@@ -21,7 +21,7 @@ sigmaNoiseMotion = 0.1*deltaT;	% m/s2, error in each UAV's acceleration while pe
 sigmaNoiseAccel = 0.25;			% m/s2, noise in IMU's accelerometer data
 sigmaLikelihood = 1;
 derivFiltOrder = 2; derivFiltHalfWinSize = 15;
-typeOfExperiment = 'Actuation';
+typeOfExperiment = 'MatchingFramework'; %'Actuation';
 repsPerExperiment = 20;
 
 PLOT_EXPERIMENT = false;
@@ -29,12 +29,14 @@ SAVE_EXPERIMENT = false;
 
 for roomDimensionsCell = {[1.5, 1.75, 1]} %{[5, 5, 2.5], [15, 10, 3]} % Width x Depth x Height of the room in m
 	roomDimensions = roomDimensionsCell{:};
-	spotterCam.pos = [roomDimensions(1)/2, -(roomDimensions(1)/2) / tan(spotterCam.FOV/2), roomDimensions(3)/2]; % Need FOV to determine pos
+		spotterCam.orient = [0 1 0; 0 0 -1; -1 0 0];
+	spotterCam.pos = [roomDimensions(1) + (roomDimensions(1)/2) / tan(spotterCam.FOV/2), roomDimensions(2)/2, roomDimensions(3)/2]; % Need FOV to determine pos
+	% Old way of positioning the camera (looking at y-axis): spotterCam.pos = [roomDimensions(1)/2, -(roomDimensions(1)/2) / tan(spotterCam.FOV/2), roomDimensions(3)/2]; % Need FOV to determine pos
 
 	for N = 4
 		M = N;
 		for sigmaLikelihood = 1 %[0.05:0.05:0.2 0.25:0.25:1.5]
-			for typeOfMotionCell = {'oursReal', } %'oursSim', 'random', 'hovering', 'oneAtATime', 'lowestRisky', } %{'hovering', 'landed', 'oneAtATime', 'lowestRisky', 'ours'}
+			for typeOfMotionCell = {'random', } %'oursSim', 'random', 'hovering', 'oneAtATime', 'lowestRisky', } %{'hovering', 'landed', 'oneAtATime', 'lowestRisky', 'ours'}
 				typeOfMotion = typeOfMotionCell{:};
 				if startsWith(typeOfMotion,'ours', 'IgnoreCase',true)
 					tMax = 3;
@@ -43,7 +45,7 @@ for roomDimensionsCell = {[1.5, 1.75, 1]} %{[5, 5, 2.5], [15, 10, 3]} % Width x 
 					paramsOurActuation = {'ourActuationNumLowRiskIterations', 'ourActuationNumBestAssignments'};
 					if strcmpi(typeOfMotion, 'oursReal'), movingAvgFiltWinSize = 30; else, movingAvgFiltWinSize = 2; end
 				else
-					tMax = 300;
+					tMax = 150;
 					movingAvgFiltWinSize = 2;	% For IMU simulated data
 					paramsOurActuation = {};  % Don't save any parameters related to actuation
 				end
@@ -68,8 +70,8 @@ for roomDimensionsCell = {[1.5, 1.75, 1]} %{[5, 5, 2.5], [15, 10, 3]} % Width x 
  					while min(distAmongDrones(:)) < threshRisk % Keep trying if necessary until no one goes through walls
 						if strcmpi(typeOfMotion, 'hovering') %|| strcmpi(typeOfMotion, 'lowestRisky')
 							initPosUAV = cat(3, threshRisk + rand(N,1,length(dims)-1).*reshape(roomDimensions(1:length(dims)-1)-2*threshRisk, 1,1,[]), 0.5*roomDimensions(end)*ones(N,1,1));
-						elseif strcmpi(typeOfMotion, 'random')
-							initPosUAV = threshRisk + rand(N,1,length(dims)).*reshape(roomDimensions-2*threshRisk, 1,1,[]);
+						%elseif strcmpi(typeOfMotion, 'random')
+						%	initPosUAV = threshRisk + rand(N,1,length(dims)).*reshape(roomDimensions-2*threshRisk, 1,1,[]);
 						else % Any other combination, start landed
 							initPosUAV = cat(3, threshRisk + rand(N,1,length(dims)-1).*reshape(roomDimensions(1:length(dims)-1)-2*threshRisk, 1,1,[]), zeros(N,1,1));
 						end
@@ -103,11 +105,14 @@ for roomDimensionsCell = {[1.5, 1.75, 1]} %{[5, 5, 2.5], [15, 10, 3]} % Width x 
 					for currT = 0 : deltaT : tMax-(1/spotterCam.fps)
 						currTind = currT*spotterCam.fps + 1;
 						currIter = (currT/deltaT) + 1;
-						iterOutputFolder = [outputFolder 'iteration' num2str(currIter) '/'];
-						if exist(iterOutputFolder, 'file') == 7
-							error(['Couldnt create folder' iterOutputFolder]);
-						else
-							mkdir(iterOutputFolder)
+						% Create the folder for this iteration (if collecting real data for our actuation) so writing newCommand.txt doesn't fail
+						if strcmpi(typeOfMotion, 'oursReal')
+							iterOutputFolder = [outputFolder 'iteration' num2str(currIter) '/'];
+							if exist(iterOutputFolder, 'file') == 7
+								error(['Couldnt create folder' iterOutputFolder]);
+							else
+								mkdir(iterOutputFolder)
+							end
 						end
 
 						% Check for a condition to end the experiment (everyone identified)
