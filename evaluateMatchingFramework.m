@@ -8,7 +8,7 @@ cdToThisScriptsDirectory;
 dataOutputFolder = [fileparts(mfilename('fullpath')) '/data/'];
 dims = 1:3;		% 3-axis acceleration
 spotterCam = struct('fps',30, 'FOV',120*pi/180, 'pos',[], 'orient',[1 0 0; 0 0 -1; 0 1 0]);	% Camera's Field Of View in rad (120º), orientation pointing in the direction of the y-axis
-threshRisk = 0.5; % m, how close drones can get to a wall (to avoid going through them or crashing)
+threshRisk = 0.2; % m, how close drones can get to a wall (to avoid going through them or crashing)
 threshPosteriorsEndsExperiment = 0.99; % End the experiment when all drones are identified with confidence over 99.99%
 maxSpeed = 1;	% m/s max speed drones can fly at
 deltaT = 1;		% Timestep/iteration: 1s
@@ -27,17 +27,17 @@ repsPerExperiment = 20;
 PLOT_EXPERIMENT = false;
 SAVE_EXPERIMENT = false;
 
-for roomDimensionsCell = {[8, 5, 3]} %{[5, 5, 2.5], [15, 10, 3]} % Width x Depth x Height of the room in m
+for roomDimensionsCell = {[1.5, 1.75, 1]} %{[5, 5, 2.5], [15, 10, 3]} % Width x Depth x Height of the room in m
 	roomDimensions = roomDimensionsCell{:};
 	spotterCam.pos = [roomDimensions(1)/2, -(roomDimensions(1)/2) / tan(spotterCam.FOV/2), roomDimensions(3)/2]; % Need FOV to determine pos
 
-	for N = 10
+	for N = 4
 		M = N;
 		for sigmaLikelihood = 1 %[0.05:0.05:0.2 0.25:0.25:1.5]
 			for typeOfMotionCell = {'oursReal', } %'oursSim', 'random', 'hovering', 'oneAtATime', 'lowestRisky', } %{'hovering', 'landed', 'oneAtATime', 'lowestRisky', 'ours'}
 				typeOfMotion = typeOfMotionCell{:};
 				if startsWith(typeOfMotion,'ours', 'IgnoreCase',true)
-					tMax = 30;
+					tMax = 3;
 					ourActuationNumLowRiskIterations = 5;		% Move all in the same dir, diff. amplitude during 5 iterations, then optimally
 					ourActuationNumBestAssignments = ceil(N/4);	% Number of most likely assignments to consider when generating command
 					paramsOurActuation = {'ourActuationNumLowRiskIterations', 'ourActuationNumBestAssignments'};
@@ -83,7 +83,11 @@ for roomDimensionsCell = {[8, 5, 3]} %{[5, 5, 2.5], [15, 10, 3]} % Width x Depth
 					% Write the initial positions to a txt file for the Python script if evaluating our actuation in real life
 					if strcmpi(typeOfMotion, 'oursReal')
 						outputFolder = [dataOutputFolder 'Real/Ours/experiment' num2str(experimentRep) '/'];
-						if ~mkdir(outputFolder), error(['Couldnt create folder' outputFolder]); end
+						if exist(outputFolder, 'file') == 7
+							error(['Couldn''t create folder' outputFolder ', does it already exist? Don''t want to overwrite data :)']);
+						else
+							mkdir(outputFolder);
+						end
 					else
 						outputFolder = [dataOutputFolder 'Simulations/'];
 					end
@@ -100,7 +104,11 @@ for roomDimensionsCell = {[8, 5, 3]} %{[5, 5, 2.5], [15, 10, 3]} % Width x Depth
 						currTind = currT*spotterCam.fps + 1;
 						currIter = (currT/deltaT) + 1;
 						iterOutputFolder = [outputFolder 'iteration' num2str(currIter) '/'];
-						if ~mkdir(iterOutputFolder), error(['Couldnt create folder' iterOutputFolder]); end
+						if exist(iterOutputFolder, 'file') == 7
+							error(['Couldnt create folder' iterOutputFolder]);
+						else
+							mkdir(iterOutputFolder)
+						end
 
 						% Check for a condition to end the experiment (everyone identified)
 						if testIfExperimentShouldEnd(runningPosterior(:,:,currTind,iW), threshPosteriorsEndsExperiment)
@@ -184,6 +192,7 @@ for roomDimensionsCell = {[8, 5, 3]} %{[5, 5, 2.5], [15, 10, 3]} % Width x Depth
 							strDeltaP = num2str(commandDeltaP, '%.3f,');  % Convert commandDeltaP to string and save it in a temporary variable so we can remove the trailing ','
 							strCurrentPos = num2str(posUAVgt(:,currTind,:), '%.3f,');  % Convert current positions to string
 							fprintf(fileID, strcat(strCurrentPos, strDeltaP(:,1:end-1), '\n')');  % Separate rows with a '\n' and transpose (otherwise it would write column-wise)
+							fprintf(fileID, 'Done');  % Make sure we signal Python we're done writing the file (avoids race conditions where Python only reads when we're half way through writing)
 							fclose(fileID);
 							
 							% Wait for Python to collect data and write log files
@@ -193,9 +202,9 @@ for roomDimensionsCell = {[8, 5, 3]} %{[5, 5, 2.5], [15, 10, 3]} % Width x Depth
 							end
 							
 							% Load logs
-							data = loadRealExperimentData(struct('datetime',{['iteration' num2str(currIter)]}, 'ch',['exp' num2str(experimentRep)]), outputFolder, derivFiltOrder, 1+2*derivFiltHalfWinSize, movingAvgFiltWinSize);
+							data = loadRealExperimentData(struct('datetime',{['iteration' num2str(currIter)]}, 'ch',['experiment' num2str(experimentRep)]), outputFolder(1:end-1), derivFiltOrder, 1+2*derivFiltHalfWinSize, movingAvgFiltWinSize);
 							for n = 1:N
-								ind_start = find(data.drone_id == n, 1);
+								ind_start = find(data.drone_id.measured == n, 1);
 								ind_drone_data = ind_start:(ind_start + frameworkWinSize - 1);
 								for d = 1:size(accelUAV,3)
 									accelUAV(n,currTind+(1:frameworkWinSize),d) = data.a_UAV.(char('X'+d-1)).measured(ind_drone_data);

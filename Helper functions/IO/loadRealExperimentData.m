@@ -23,6 +23,7 @@ function data = loadRealExperimentData(logInfo, logFolder, derivPolyOrder, deriv
             gyro_UAV_orig = readNPZ([logFolder '/' logInfo(j).datetime '/log_gyro' magnitudes{i} '_' logInfo(j).ch '_' strrep(logInfo(j).datetime, ' ','_') '.npz']);
             accel_UAV_dsamp = struct('tFloat',accel_cam_orig.tFloat, 'measured',interp1(accel_UAV_orig.tFloat, movingAvgFilter(movingAvgFiltWinSize, accel_UAV_orig.measured), accel_cam_orig.tFloat)); % accel_UAV_dsamp.measured(isnan(accel_UAV_dsamp.measured))=0;
             gyro_UAV_dsamp = struct('tFloat',accel_cam_orig.tFloat, 'measured',interp1(gyro_UAV_orig.tFloat, movingAvgFilter(movingAvgFiltWinSize, gyro_UAV_orig.measured), accel_cam_orig.tFloat)); % gyro_UAV_dsamp.measured(isnan(gyro_UAV_dsamp.measured))=0;
+			drone_id_dsamp = struct('tFloat',accel_cam_orig.tFloat, 'measured',interp1(drone_id_orig.tFloat, double(drone_id_orig.measured), accel_cam_orig.tFloat, 'previous'));
 			
 			% Apply the derivative filter to convert pos_cam_orig.measured to vel and accel
 			vel_cam_orig.measured = derivFilter(reshape(pos_cam_orig.measured, 1,[]), 1, mean(diff(pos_cam_orig.tFloat)), derivPolyOrder, derivWinSize);
@@ -33,13 +34,13 @@ function data = loadRealExperimentData(logInfo, logFolder, derivPolyOrder, deriv
             %xl = [accel_cam_orig.tFloat((derivWinSize+1)/2), accel_UAV_orig.tFloat(end-(3*derivWinSize-1)/2)];
             tCropInds = (accel_cam_orig.tFloat>=xl(1) & accel_cam_orig.tFloat<=xl(2));
             tCropIndsUAV = (accel_UAV_orig.tFloat>=xl(1) & accel_UAV_orig.tFloat<=xl(2));
-			if ~isempty(drone_id_orig), drone_id_crop = struct('tFloat',drone_id_orig.tFloat(tCropInds), 't',drone_id_orig.tFloat(tCropInds)-drone_id_orig.tFloat(find(tCropInds,1)) , 'measured',drone_id_orig.measured(tCropInds)); end
 			pos_cam_crop = struct('tFloat',pos_cam_orig.tFloat(tCropInds), 't',pos_cam_orig.tFloat(tCropInds)-pos_cam_orig.tFloat(find(tCropInds,1)) , 'measured',pos_cam_orig.measured(tCropInds));
 			vel_cam_crop = struct('tFloat',vel_cam_orig.tFloat(tCropInds), 't',vel_cam_orig.tFloat(tCropInds)-vel_cam_orig.tFloat(find(tCropInds,1)) , 'measured',vel_cam_orig.measured(tCropInds));
 			accel_cam_crop = struct('tFloat',accel_cam_orig.tFloat(tCropInds), 't',accel_cam_orig.tFloat(tCropInds)-accel_cam_orig.tFloat(find(tCropInds,1)) , 'measured',accel_cam_orig.measured(tCropInds));
             accel_UAV_crop = struct('tFloat',accel_UAV_orig.tFloat(tCropIndsUAV), 't',accel_UAV_orig.tFloat(tCropIndsUAV)-accel_UAV_orig.tFloat(find(tCropIndsUAV,1)), 'measured',accel_UAV_orig.measured(tCropIndsUAV));
 			accel_UAV_dsamp_crop = struct('tFloat',accel_UAV_dsamp.tFloat(tCropInds), 't',accel_cam_orig.tFloat(tCropInds)-accel_cam_orig.tFloat(find(tCropInds,1)), 'measured',accel_UAV_dsamp.measured(tCropInds));
             gyro_UAV_dsamp_crop = struct('tFloat',gyro_UAV_dsamp.tFloat(tCropInds), 't',accel_cam_orig.tFloat(tCropInds)-accel_cam_orig.tFloat(find(tCropInds,1)), 'measured',gyro_UAV_dsamp.measured(tCropInds));
+			if ~isempty(drone_id_orig), drone_id_crop = struct('tFloat',drone_id_dsamp.tFloat(tCropInds), 't',accel_cam_orig.tFloat(tCropInds)-accel_cam_orig.tFloat(find(tCropInds,1)) , 'measured',drone_id_dsamp.measured(tCropInds)); end
 
 			% Save processed variables in output struct
             data(j).p_cam.(magnitudes{i}) = pos_cam_crop;

@@ -42,7 +42,7 @@ function [ax, h] = suplabel(text, whichLabel, supAxes, axMargin, varargin)
 	if nargin < 4 || isempty(axMargin), axMargin=0.01; end
 	if length(axMargin) < 2, axMargin = repmat(axMargin, 1,2); end
 	if length(axMargin) < 4, axMargin = repmat(axMargin(1:2), 1,2); end
-	if isempty(supAxes) || ~isnumeric(supAxes(1))	% supAxes indicates the axes position if 1x4 double, but the set of axes the suplabel applies to otherwise
+	if isempty(supAxes) || any(isgraphics(supAxes(:)))	% supAxes indicates the axes position if 1x4 double, but the set of axes the suplabel applies to otherwise
 		if ~isempty(supAxes), ah = supAxes(:); else, ah = findall(gcf, 'type','axes', 'Visible','on'); end
 		if ~isempty(ah)
 			set(ah(~strcmpi(get(ah, 'Units'), 'Normalized')), 'Units','Normalized');	% Speedup: only set units to axes that don't have Normalized units yet (it's a slow operation)
