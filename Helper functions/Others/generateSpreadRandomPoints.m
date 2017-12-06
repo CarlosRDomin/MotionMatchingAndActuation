@@ -16,5 +16,5 @@ end
 function point = generateValidPoint(minD, roomDimensions, wallMargin)
 	if nargin<3 || isempty(wallMargin), wallMargin = 1; end
 
-	point = wallMargin*minD + rand(1,2).*(roomDimensions(1:2)-2*wallMargin*minD);
+	point = wallMargin*minD + rand(1,length(roomDimensions)).*(roomDimensions-2*wallMargin*minD);
 end

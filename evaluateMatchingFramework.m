@@ -8,8 +8,8 @@ cdToThisScriptsDirectory;
 dataOutputFolder = [fileparts(mfilename('fullpath')) '/data/'];
 dims = 1:3;		% 3-axis acceleration
 spotterCam = struct('fps',30, 'FOV',120*pi/180, 'pos',[], 'orient',[0 1 0; 0 0 -1; -1 0 0]);	% Camera's Field Of View in rad (120º), orientation pointing in the direction of the y-axis
-threshRisk = 0.5; % m, how close drones can get to a wall (to avoid going through them or crashing)
-threshPosteriorsEndsExperiment = 0.99; % End the experiment when all drones are identified with confidence over 99.99%
+threshRisk = 0.25; % m, how close drones can get to a wall (to avoid going through them or crashing)
+threshPosteriorsEndsExperiment = 0.999; % End the experiment when all drones are identified with confidence over 99.99%
 maxSpeed = 1;	% m/s max speed drones can fly at
 deltaT = 1;		% Timestep/iteration: 1s
 deltaP = maxSpeed*deltaT;	% Max distance drones can move during a timestep
@@ -17,7 +17,7 @@ frameworkWinSize = deltaT*spotterCam.fps; iW=1;
 
 normalizationByRowAndColumn = 0; % Regular Bayesian normalization (divide each cell by the sum of its row)
 sigmaNoiseCam = 0.05;			% m, noise in camera's position estimation
-sigmaNoiseMotion = 0.08*deltaT;% m/s2, error in each UAV's acceleration while performing a motion command
+sigmaNoiseMotion = 0.04*deltaT;	% m/s2, error in each UAV's acceleration while performing a motion command
 sigmaNoiseAccel = 0.25;			% m/s2, noise in IMU's accelerometer data
 sigmaLikelihood = 1;
 derivFiltOrder = 2; derivFiltHalfWinSize = 15;
@@ -28,7 +28,7 @@ PLOT_EXPERIMENT = false;
 SAVE_EXPERIMENT = true;
 
 for roomDimensionsScale = [2 1]  % roomDimensionsCell = {[1.75, 1.75, 1], [1.75, 1.75, 1]} %{[5, 5, 2.5], [15, 10, 3]} % Width x Depth x Height of the room in m
-	roomDimensions = roomDimensionsScale * [1.75, 1.75, 1]; % roomDimensionsCell{:};
+	roomDimensions = roomDimensionsScale * [2, 2, 1]; % roomDimensionsCell{:};
 	spotterCam.pos = [roomDimensions(1) + (roomDimensions(1)/2) / tan(spotterCam.FOV/2), roomDimensions(2)/2, roomDimensions(3)/2]; % Need FOV to determine pos
 	% Old way of positioning the camera (looking at y-axis): spotterCam.pos = [roomDimensions(1)/2, -(roomDimensions(1)/2) / tan(spotterCam.FOV/2), roomDimensions(3)/2]; % Need FOV to determine pos
 
@@ -40,20 +40,24 @@ for roomDimensionsScale = [2 1]  % roomDimensionsCell = {[1.75, 1.75, 1], [1.75,
 	for N = Narray
 		M = N;
 		for sigmaLikelihood = 1 %[0.05:0.05:0.2 0.25:0.25:1.5]
-			for typeOfMotionCell = {'oursSim', 'random', 'oneAtATime', 'hovering', 'landed', } %{'hovering', 'landed', 'oneAtATime', 'lowestRisky', 'ours'}
+			for typeOfMotionCell = {'random', 'oneAtATime', 'hovering', 'landed', } %{'hovering', 'landed', 'oneAtATime', 'lowestRisky', 'ours'}
 				typeOfMotion = typeOfMotionCell{:};
 				if startsWith(typeOfMotion,'ours', 'IgnoreCase',true)
+					sigmaNoiseMotion = 0.12*deltaT;	% m/s2, error in each UAV's acceleration while performing a motion command
 					ourActuationNumLowRiskIterations = 5;		% Move all in the same dir, diff. amplitude during 5 iterations, then optimally
-					ourActuationNumBestAssignments = ceil(N/3);	% Number of most likely assignments to consider when generating command
+					ourActuationNumBestAssignments = min(4, ceil(N/3));	% Number of most likely assignments to consider when generating command
 					paramsOurActuation = {'ourActuationNumLowRiskIterations', 'ourActuationNumBestAssignments'};
 					if strcmpi(typeOfMotion, 'oursReal')
 						tMax = 20;
 						movingAvgFiltWinSize = 30;
 					else
-						tMax = 150;
+						if N>20, ourActuationNumLowRiskIterations = 10; end
+						tMax = 60;
 						movingAvgFiltWinSize = 2;
 					end
 				else
+					sigmaNoiseMotion = 0.04*deltaT;	% m/s2, error in each UAV's acceleration while performing a motion command
+					threshPosteriorsEndsExperiment = 0.999; % End the experiment when all drones are identified with confidence over 99.99%
 					tMax = 150;
 					movingAvgFiltWinSize = 2;	% For IMU simulated data
 					paramsOurActuation = {};  % Don't save any parameters related to actuation
@@ -81,7 +85,11 @@ for roomDimensionsScale = [2 1]  % roomDimensionsCell = {[1.75, 1.75, 1], [1.75,
 						zScale = 0;
 					end
 					if N>20, wallMargin = 0.8; else, wallMargin = 1; end % With high N's it's almost impossible to generate a valid combination, so use more space closer to the walls
-					initPosUAV = cat(3, reshape(generateSpreadRandomPoints(N, threshRisk, roomDimensions, wallMargin), N,1,[]), zScale*ones(N,1,1));
+					if strcmpi(typeOfMotion, 'random')
+						initPosUAV = reshape(generateSpreadRandomPoints(N, threshRisk, roomDimensions, wallMargin), N,1,[]);
+					else
+						initPosUAV = cat(3, reshape(generateSpreadRandomPoints(N, threshRisk, roomDimensions(1:2), wallMargin), N,1,[]), zScale*ones(N,1,1));
+					end
 					posUAVgt = cat(2, initPosUAV, NaN(N, length(t)-1, length(dims)));
 					posUAVcam = posUAVgt;
 					velUAVgt = zeros(N, length(t), length(dims));
@@ -121,7 +129,7 @@ for roomDimensionsScale = [2 1]  % roomDimensionsCell = {[1.75, 1.75, 1], [1.75,
 						end
 
 						% Check for a condition to end the experiment (everyone identified)
-						if testIfExperimentShouldEnd(runningPosterior(:,:,currTind,iW), threshPosteriorsEndsExperiment)
+						if currIter > N && testIfExperimentShouldEnd(runningPosterior(:,:,currTind,iW), threshPosteriorsEndsExperiment)
 							dispImproved(sprintf('\nAll drones identified >= %.2f%%! Concluding experiment at t=%.2fs\n', 100*threshPosteriorsEndsExperiment, currT), 'keepthis');
 							accelUAV(:,currTind+1:end,:) = [];
 							accelCam(:,currTind+1:end,:) = [];
@@ -146,7 +154,8 @@ for roomDimensionsScale = [2 1]  % roomDimensionsCell = {[1.75, 1.75, 1], [1.75,
 							p = zeros(N, frameworkWinSize, length(dims));
 						else
 							noiseMotion = sigmaNoiseMotion;
-							if strcmpi(typeOfMotion, 'hovering')
+							if strcmpi(typeOfMotion, 'hovering') || (strcmpi(typeOfMotion, 'oneAtATime') && currIter > N)
+								if strcmpi(typeOfMotion, 'oneAtATime'), initPosUAV(:,:,end) = roomDimensions(end)/2; end
 								deltaToInitHoverPoint = squeeze(initPosUAV-posUAVcam(:,currTind,:));
 								[az,el,rho] = cart2sph(deltaToInitHoverPoint(:,1), deltaToInitHoverPoint(:,2), deltaToInitHoverPoint(:,3));
 								command = reshape([rho'; az'; pi/2-el'], [],1); % zeros(3*N,1);
@@ -162,7 +171,8 @@ for roomDimensionsScale = [2 1]  % roomDimensionsCell = {[1.75, 1.75, 1], [1.75,
 								command = reshape([maxRho*rand(1,N); repmat([dirTheta; dirPhi], 1,N)], [],1);	% All drones move with same dirTheta and dirPhi, random rhos (of up to maxRho)
 								%command = reshape([maxRho*((randperm(N)-1)/(N-1)); repmat([dirTheta; dirPhi], 1,N)], [],1);	% All drones move with same dirTheta and dirPhi, random rhos (of up to maxRho)
 							elseif strcmpi(typeOfMotion, 'oneAtATime')
-								[maxRho, dirTheta, dirPhi] = estimateLowestRiskyDirOfMotion(reshape(posUAVcam(:,currTind,:), [],size(posUAVcam,3)), roomDimensions, threshRisk);
+								%[maxRho, dirTheta, dirPhi] = estimateLowestRiskyDirOfMotion(reshape(posUAVcam(:,currTind,:), [],size(posUAVcam,3)), roomDimensions, threshRisk);
+								maxRho = roomDimensions(3)/2; dirTheta = 0; dirPhi = 0;
 								maxRho = min(maxRho, deltaP); % Make sure it's a feasible command
 								command = reshape([maxRho*((1:N)==mod(currT/deltaT, N)+1); repmat([dirTheta; dirPhi], 1,N)], [],1);
 							elseif startsWith(typeOfMotion,'ours', 'IgnoreCase',true)
@@ -180,7 +190,7 @@ for roomDimensionsScale = [2 1]  % roomDimensionsCell = {[1.75, 1.75, 1], [1.75,
 									for i = 1:ourActuationNumBestAssignments
 										assignments = assignmentList(i).matches; unassignedUAVs = assignmentList(i).unassignedUAVs; unassignedDetections = assignmentList(i).unassignedDetections;
 										P_assignment = prod(runningPriorTemp(sub2ind(size(runningPriorTemp), assignments(:,1),assignments(:,2))));
-										if P_assignment<0.1*P_total/(ourActuationNumBestAssignments-1), break; end % Stop if this combination is already unlikely
+										if P_assignment<0.2*P_total/(ourActuationNumBestAssignments-1), break; end % Stop if this combination is already unlikely
 										P_total = P_total + P_assignment;
 										%sortedAssignment = sortrows([assignments; [unassignedUAVs(:) NaN(length(unassignedUAVs),1)]]);
 										[command,newP,exitFlag,output] = fmincon(@(x) (-estimateImprovementOfCommand(x,assignments,runningPriorTemp,[],sigmaNoiseAccel,[],spotterCam.fps,deltaT)), ...
