@@ -8,7 +8,7 @@ cdToThisScriptsDirectory;
 dataOutputFolder = [fileparts(mfilename('fullpath')) '/data/'];
 dims = 1:3;		% 3-axis acceleration
 spotterCam = struct('fps',30, 'FOV',120*pi/180, 'pos',[], 'orient',[0 1 0; 0 0 -1; -1 0 0]);	% Camera's Field Of View in rad (120º), orientation pointing in the direction of the y-axis
-threshRisk = 0.2; % m, how close drones can get to a wall (to avoid going through them or crashing)
+threshRisk = 0.5; % m, how close drones can get to a wall (to avoid going through them or crashing)
 threshPosteriorsEndsExperiment = 0.99; % End the experiment when all drones are identified with confidence over 99.99%
 maxSpeed = 1;	% m/s max speed drones can fly at
 deltaT = 1;		% Timestep/iteration: 1s
@@ -17,33 +17,42 @@ frameworkWinSize = deltaT*spotterCam.fps; iW=1;
 
 normalizationByRowAndColumn = 0; % Regular Bayesian normalization (divide each cell by the sum of its row)
 sigmaNoiseCam = 0.05;			% m, noise in camera's position estimation
-sigmaNoiseMotion = 0.1*deltaT;	% m/s2, error in each UAV's acceleration while performing a motion command
+sigmaNoiseMotion = 0.08*deltaT;% m/s2, error in each UAV's acceleration while performing a motion command
 sigmaNoiseAccel = 0.25;			% m/s2, noise in IMU's accelerometer data
 sigmaLikelihood = 1;
 derivFiltOrder = 2; derivFiltHalfWinSize = 15;
-typeOfExperiment = 'MatchingFramework'; %'Actuation';
+typeOfExperiment = 'Simulation'; %'MatchingFramework'; %'Actuation';
 repsPerExperiment = 20;
 
 PLOT_EXPERIMENT = false;
-SAVE_EXPERIMENT = false;
+SAVE_EXPERIMENT = true;
 
-for roomDimensionsCell = {[1.5, 1.75, 1]} %{[5, 5, 2.5], [15, 10, 3]} % Width x Depth x Height of the room in m
-	roomDimensions = roomDimensionsCell{:};
-		spotterCam.orient = [0 1 0; 0 0 -1; -1 0 0];
+for roomDimensionsScale = [2 1]  % roomDimensionsCell = {[1.75, 1.75, 1], [1.75, 1.75, 1]} %{[5, 5, 2.5], [15, 10, 3]} % Width x Depth x Height of the room in m
+	roomDimensions = roomDimensionsScale * [1.75, 1.75, 1]; % roomDimensionsCell{:};
 	spotterCam.pos = [roomDimensions(1) + (roomDimensions(1)/2) / tan(spotterCam.FOV/2), roomDimensions(2)/2, roomDimensions(3)/2]; % Need FOV to determine pos
 	% Old way of positioning the camera (looking at y-axis): spotterCam.pos = [roomDimensions(1)/2, -(roomDimensions(1)/2) / tan(spotterCam.FOV/2), roomDimensions(3)/2]; % Need FOV to determine pos
 
-	for N = 4
+	if roomDimensionsScale == 2
+		Narray = ceil(24./[1 2 3 4 5]);
+	else
+		Narray = 3;
+	end
+	for N = Narray
 		M = N;
 		for sigmaLikelihood = 1 %[0.05:0.05:0.2 0.25:0.25:1.5]
-			for typeOfMotionCell = {'random', } %'oursSim', 'random', 'hovering', 'oneAtATime', 'lowestRisky', } %{'hovering', 'landed', 'oneAtATime', 'lowestRisky', 'ours'}
+			for typeOfMotionCell = {'oursSim', 'random', 'oneAtATime', 'hovering', 'landed', } %{'hovering', 'landed', 'oneAtATime', 'lowestRisky', 'ours'}
 				typeOfMotion = typeOfMotionCell{:};
 				if startsWith(typeOfMotion,'ours', 'IgnoreCase',true)
-					tMax = 3;
 					ourActuationNumLowRiskIterations = 5;		% Move all in the same dir, diff. amplitude during 5 iterations, then optimally
-					ourActuationNumBestAssignments = ceil(N/4);	% Number of most likely assignments to consider when generating command
+					ourActuationNumBestAssignments = ceil(N/3);	% Number of most likely assignments to consider when generating command
 					paramsOurActuation = {'ourActuationNumLowRiskIterations', 'ourActuationNumBestAssignments'};
-					if strcmpi(typeOfMotion, 'oursReal'), movingAvgFiltWinSize = 30; else, movingAvgFiltWinSize = 2; end
+					if strcmpi(typeOfMotion, 'oursReal')
+						tMax = 20;
+						movingAvgFiltWinSize = 30;
+					else
+						tMax = 150;
+						movingAvgFiltWinSize = 2;
+					end
 				else
 					tMax = 150;
 					movingAvgFiltWinSize = 2;	% For IMU simulated data
@@ -69,13 +78,15 @@ for roomDimensionsCell = {[1.5, 1.75, 1]} %{[5, 5, 2.5], [15, 10, 3]} % Width x 
  					distAmongDrones = -1;
  					while min(distAmongDrones(:)) < threshRisk % Keep trying if necessary until no one goes through walls
 						if strcmpi(typeOfMotion, 'hovering') %|| strcmpi(typeOfMotion, 'lowestRisky')
-							initPosUAV = cat(3, threshRisk + rand(N,1,length(dims)-1).*reshape(roomDimensions(1:length(dims)-1)-2*threshRisk, 1,1,[]), 0.5*roomDimensions(end)*ones(N,1,1));
+							zScale = 0.5*roomDimensions(end);
 						%elseif strcmpi(typeOfMotion, 'random')
 						%	initPosUAV = threshRisk + rand(N,1,length(dims)).*reshape(roomDimensions-2*threshRisk, 1,1,[]);
 						else % Any other combination, start landed
-							initPosUAV = cat(3, threshRisk + rand(N,1,length(dims)-1).*reshape(roomDimensions(1:length(dims)-1)-2*threshRisk, 1,1,[]), zeros(N,1,1));
+							zScale = 0;
 						end
- 						[~,distAmongDrones,~] = estimateRiskOfCommand(zeros(3*N,1), [(1:N)' groundTruthAssignment], initPosUAV, roomDimensions);
+						initPosUAV = cat(3, threshRisk + rand(N,1,length(dims)-1).*reshape(roomDimensions(1:length(dims)-1)-2*threshRisk, 1,1,[]), zScale*ones(N,1,1));
+						distAmongDrones = pdist(squeeze(initPosUAV(:,:,1:2)));
+ 						%[~,distAmongDrones,~] = estimateRiskOfCommand(zeros(3*N,1), [(1:N)' groundTruthAssignment], initPosUAV, roomDimensions);
  					end
 					posUAVgt = cat(2, initPosUAV, NaN(N, length(t)-1, length(dims)));
 					posUAVcam = posUAVgt;
@@ -245,12 +256,12 @@ for roomDimensionsCell = {[1.5, 1.75, 1]} %{[5, 5, 2.5], [15, 10, 3]} % Width x 
 					end
 					% Just in case, save the *.mat (same name, so keep overwriting as we perform more repetitions)
 					if SAVE_EXPERIMENT || strcmpi(typeOfMotion, 'oursReal')  % Make sure we always save the data on real actuation!! Don't want to have to repeat the experiments...
-						save_fileName = strjoin([outputFolder typeOfExperiment '_' typeOfMotion '_' N 'N_norm' normalizationByRowAndColumn '_' string(roomDimensions).join('x') '.mat'], '');
+						save_fileName = strjoin([outputFolder typeOfExperiment '_' typeOfMotion '_' N 'N_' string(roomDimensions).join('x') '.mat'], '');
 						save(save_fileName, 'paramStruct','variableStruct', '-v7.3'); % The flag '-v7.3' allows to save files of size >= 2GB
 						dispImproved(sprintf('Saved simulation results as "%s"\n', save_fileName), 'keepthis');
 					end
 
-					if true
+					if false
 						%% Plot last experiment results (raw accels, likelihood, posteriors...)
 						outFields = {'runningWinScore','runningLikelihood','runningPosterior','assignedMatch','N','M','iCams','dims','frameworkWinSize','t','accelCam','accelUAV'};
 						runningCorrStruct = cell2struct(cell(1, length(outFields)), outFields, 2);

@@ -29,7 +29,7 @@ function generateDronesInRoomVideo(videoName, posUAVgtOrExperimentInfo, roomDime
 	for k=1:size(posUAVgt,2)
 		dispImproved(sprintf('Processing video frame %4d out of %4d (%6.2f%%)', k, size(posUAVgt,2), 100*k/size(posUAVgt,2)));
 		pause(1/spotterCam.fps);
-		set(h, 'XData',posUAVgt(:,k,1), 'YData',posUAVgt(:,k,2), 'ZData',posUAVgt(:,k,3)+0.3);
+		set(h, 'XData',posUAVgt(:,k,1), 'YData',posUAVgt(:,k,2), 'ZData',posUAVgt(:,k,3));
 		set(hTitle, 'String',['Time: ' num2str(k/spotterCam.fps, '%.2f')]);
 		if saveVideo
 			saveas(gcf, tempFrameName);
