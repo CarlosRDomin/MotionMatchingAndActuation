@@ -75,19 +75,13 @@ for roomDimensionsScale = [2 1]  % roomDimensionsCell = {[1.75, 1.75, 1], [1.75,
 					groundTruthAssignment = randperm(N,M)'; groundTruthAssignment=(1:M)'; % Get a random permutation of M elements picked from the set 1:N
 
 					% Initialize random positions, making sure no one is too close to walls
- 					distAmongDrones = -1;
- 					while min(distAmongDrones(:)) < threshRisk % Keep trying if necessary until no one goes through walls
-						if strcmpi(typeOfMotion, 'hovering') %|| strcmpi(typeOfMotion, 'lowestRisky')
-							zScale = 0.5*roomDimensions(end);
-						%elseif strcmpi(typeOfMotion, 'random')
-						%	initPosUAV = threshRisk + rand(N,1,length(dims)).*reshape(roomDimensions-2*threshRisk, 1,1,[]);
-						else % Any other combination, start landed
-							zScale = 0;
-						end
-						initPosUAV = cat(3, threshRisk + rand(N,1,length(dims)-1).*reshape(roomDimensions(1:length(dims)-1)-2*threshRisk, 1,1,[]), zScale*ones(N,1,1));
-						distAmongDrones = pdist(squeeze(initPosUAV(:,:,1:2)));
- 						%[~,distAmongDrones,~] = estimateRiskOfCommand(zeros(3*N,1), [(1:N)' groundTruthAssignment], initPosUAV, roomDimensions);
- 					end
+					if strcmpi(typeOfMotion, 'hovering') %|| strcmpi(typeOfMotion, 'lowestRisky')
+						zScale = 0.5*roomDimensions(end);
+					else % Any other combination, start landed
+						zScale = 0;
+					end
+					if N>20, wallMargin = 0.8; else, wallMargin = 1; end % With high N's it's almost impossible to generate a valid combination, so use more space closer to the walls
+					initPosUAV = cat(3, reshape(generateSpreadRandomPoints(N, threshRisk, roomDimensions, wallMargin), N,1,[]), zScale*ones(N,1,1));
 					posUAVgt = cat(2, initPosUAV, NaN(N, length(t)-1, length(dims)));
 					posUAVcam = posUAVgt;
 					velUAVgt = zeros(N, length(t), length(dims));
