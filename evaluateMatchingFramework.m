@@ -27,7 +27,7 @@ repsPerExperiment = 20;
 PLOT_EXPERIMENT = false;
 SAVE_EXPERIMENT = true;
 
-for roomDimensionsScale = [2 1]  % roomDimensionsCell = {[1.75, 1.75, 1], [1.75, 1.75, 1]} %{[5, 5, 2.5], [15, 10, 3]} % Width x Depth x Height of the room in m
+for roomDimensionsScale = 2  % roomDimensionsCell = {[1.75, 1.75, 1], [1.75, 1.75, 1]} %{[5, 5, 2.5], [15, 10, 3]} % Width x Depth x Height of the room in m
 	roomDimensions = roomDimensionsScale * [2, 2, 1]; % roomDimensionsCell{:};
 	spotterCam.pos = [roomDimensions(1) + (roomDimensions(1)/2) / tan(spotterCam.FOV/2), roomDimensions(2)/2, roomDimensions(3)/2]; % Need FOV to determine pos
 	% Old way of positioning the camera (looking at y-axis): spotterCam.pos = [roomDimensions(1)/2, -(roomDimensions(1)/2) / tan(spotterCam.FOV/2), roomDimensions(3)/2]; % Need FOV to determine pos
@@ -40,19 +40,23 @@ for roomDimensionsScale = [2 1]  % roomDimensionsCell = {[1.75, 1.75, 1], [1.75,
 	for N = Narray
 		M = N;
 		for sigmaLikelihood = 1 %[0.05:0.05:0.2 0.25:0.25:1.5]
-			for typeOfMotionCell = {'random', 'oneAtATime', 'hovering', 'landed', } %{'hovering', 'landed', 'oneAtATime', 'lowestRisky', 'ours'}
+			for typeOfMotionCell = {'oursSim', } %{'hovering', 'landed', 'oneAtATime', 'lowestRisky', 'ours'}
 				typeOfMotion = typeOfMotionCell{:};
 				if startsWith(typeOfMotion,'ours', 'IgnoreCase',true)
 					sigmaNoiseMotion = 0.12*deltaT;	% m/s2, error in each UAV's acceleration while performing a motion command
 					ourActuationNumLowRiskIterations = 5;		% Move all in the same dir, diff. amplitude during 5 iterations, then optimally
-					ourActuationNumBestAssignments = min(4, ceil(N/3));	% Number of most likely assignments to consider when generating command
+					ourActuationNumBestAssignments = max(2, min(4, ceil(N/3)));	% Number of most likely assignments to consider when generating command
 					paramsOurActuation = {'ourActuationNumLowRiskIterations', 'ourActuationNumBestAssignments'};
 					if strcmpi(typeOfMotion, 'oursReal')
+						repsPerExperiment = 10;
 						tMax = 20;
 						movingAvgFiltWinSize = 30;
 					else
-						if N>20, ourActuationNumLowRiskIterations = 10; end
-						tMax = 60;
+						if N>20
+							ourActuationNumLowRiskIterations = 10;
+							repsPerExperiment = 10;
+						end
+						tMax = 30;
 						movingAvgFiltWinSize = 2;
 					end
 				else
