@@ -5,8 +5,11 @@
 close all; clear all;
 cdToThisScriptsDirectory;
 
-typeOfExperiment = 'MatchingFramework';
+realOutputFolder = [fileparts(mfilename('fullpath')) '/data/Real/'];
 simOutputFolder = [fileparts(mfilename('fullpath')) '/data/Simulations/'];
+realOutputFolderAndPrefix = [realOutputFolder 'Real'];
+simOutputFolderAndPrefix = [simOutputFolder 'Simulation'];
+skipPreProcess = true; % Whether or not to "generate" by "overlapping" real experiment data
 skipProcess = true; % Whether or not to (re)process all the experiment data
 
 % Constants
@@ -14,152 +17,207 @@ confidenceThresholds = 0:0.025:1;
 repsPerExperiment = 20;
 threshCollision = 0.25; % Anything closer than 25cm crashes
 numWindowsPerSecond = 1; % Computed as: expData.paramStruct.spotterCam.fps/expData.paramStruct.frameworkWinSize
-maxTimeStepsMOTA = floor(300*numWindowsPerSecond); % Up to 300s
+maxTimeStepsMOTA = floor(150*numWindowsPerSecond); % Up to 300s
 
-%% Process all experiment data saved
-filesInFolder = dir([simOutputFolder typeOfExperiment '_*.mat']);
-if ~skipProcess
-	for roomSizeCell = {'5x5x2.5.mat', '15x10x3.mat'}
-		roomSize = roomSizeCell{:};
-		processedResultsFileName = [simOutputFolder typeOfExperiment '_processed_' roomSize];
-
-		% Initialize experimentsStruct based on the names of the files found
-		experimentsStruct = struct();
-		for fileNameCell = {filesInFolder.name}
-			fileName = fileNameCell{:};
-			fileInfo = strsplit(fileName, '_');
-			if strcmpi(fileInfo{2}, 'processed'), continue; end % Skip processed results
-			if strcmpi(fileInfo{1}, typeOfExperiment) && ~strcmpi(fileInfo{2}, 'landed') && strcmpi(fileInfo{4}, 'norm0') && strcmpi(fileInfo{5}, roomSize) % Only process files of the right type of experiment
-				N = str2double(fileInfo{3}(1:end-1));
-				if ~isfield(experimentsStruct, fileInfo{2}) % Then, arrange the *.mat's according to their motion type (fileInfo{2}, ie. random, hovering, landed...)
-					experimentsStruct.(fileInfo{2}).fileNames = {fileName};	     % Initialize the field if it didn't exist
-					experimentsStruct.(fileInfo{2}).N = N;
-				else
-					experimentsStruct.(fileInfo{2}).fileNames{end+1} = fileName; % Otherwise just append the fileName to the end of the list
-					experimentsStruct.(fileInfo{2}).N(end+1) = N;
-				end
-			end
+%% Pre-Process real experiments (combine multiple drones into single experiment)
+if ~skipPreProcess
+	% Ours
+	for expInd = 1:5
+		aux = load([realOutputFolder 'Ours/experiment' num2str(expInd) '/Actuation_oursReal_3N_2x2x1.mat']);
+		if expInd == 1
+			paramStruct = aux.paramStruct;
+			variableStruct = aux.variableStruct;
+		else
+			variableStruct = [variableStruct aux.variableStruct(end)];
 		end
+	end
+	preProcessedResultsFileName = strjoin([realOutputFolderAndPrefix '_' paramStruct.typeOfMotion '_' paramStruct.N 'N_' string(paramStruct.roomDimensions).join('x') '.mat'], '');
+	save(preProcessedResultsFileName, 'paramStruct','variableStruct', '-v7.3');
+	dispImproved(sprintf('Saved pre-processed experiment results as "%s"!\n', preProcessedResultsFileName), 'keepthis');
 
-		%% Actually do the processing
-		for typeOfMotionCell = fieldnames(experimentsStruct)'
-			typeOfMotion = typeOfMotionCell{:};
-
-			% Sort fileNames by N, and save N as a field
-			[experimentsStruct.(typeOfMotion).N, sortedInds] = sort(experimentsStruct.(typeOfMotion).N);
-			experimentsStruct.(typeOfMotion).N = unique(experimentsStruct.(typeOfMotion).N); % There might be repeated values of N (different normalizations), so keep only unique values
-			experimentsStruct.(typeOfMotion).fileNames = experimentsStruct.(typeOfMotion).fileNames(sortedInds); % Sort fileNames by N
-
-			% Initialize remaining fields in the structure
-			experimentsStruct.(typeOfMotion).idMOTA = NaN(repsPerExperiment, length(experimentsStruct.(typeOfMotion).N), length(confidenceThresholds), maxTimeStepsMOTA);
-			experimentsStruct.(typeOfMotion).idAccuracy = zeros(repsPerExperiment, length(experimentsStruct.(typeOfMotion).N), length(confidenceThresholds));
-			experimentsStruct.(typeOfMotion).idAccuracyFirstEver = zeros(repsPerExperiment, length(experimentsStruct.(typeOfMotion).N), length(confidenceThresholds));
-			experimentsStruct.(typeOfMotion).idTime = NaN(size(experimentsStruct.(typeOfMotion).idAccuracy));
-			experimentsStruct.(typeOfMotion).correctIdTime = NaN(size(experimentsStruct.(typeOfMotion).idMOTA));
-			experimentsStruct.(typeOfMotion).numSurvivors = NaN(repsPerExperiment, length(experimentsStruct.(typeOfMotion).N), maxTimeStepsMOTA);
-			experimentsStruct.(typeOfMotion).posteriorToConfidenceMapping = zeros(2, length(experimentsStruct.(typeOfMotion).N), length(confidenceThresholds)-1);
-
-			for fileNameInd = 1:numel(experimentsStruct.(typeOfMotion).fileNames)
-				fileName = experimentsStruct.(typeOfMotion).fileNames{fileNameInd};
-				expData = load(fileName); % Load the experiment mat
-				if fileNameInd==1, experimentsStruct.(typeOfMotion).paramStruct = expData.paramStruct; end % Copy static params so they can be accessed later on :)
-				N = expData.paramStruct.N; [~,Nind] = find(experimentsStruct.(typeOfMotion).N==N);
-				
-				% Traverse every experiment repetition for these variables
-				for experimentInd = 1:length(expData.variableStruct)
-					% Old experiments need fix: assignedMatch should be initialized randomly (to make accuracy metrics realistic)
-					expData.variableStruct(experimentInd).assignedMatch(:,1:expData.paramStruct.frameworkWinSize,:) = repmat(randperm(N)', 1,expData.paramStruct.frameworkWinSize,length(expData.paramStruct.frameworkWinSize));
-					expData.variableStruct(experimentInd).runningPosterior(:,:,1:expData.paramStruct.frameworkWinSize) = 1/N;
-					
-					% Compute longest time we can evaluate MOTA and survivors for, for this experimentInd
-					actualTimeStepsMOTA = min(floor(expData.variableStruct(experimentInd).t(end)*numWindowsPerSecond), maxTimeStepsMOTA);
-					actualTimeIndsMOTA = expData.paramStruct.frameworkWinSize*(0:actualTimeStepsMOTA)+1;
-					
-					% Obtain the runningPosterior of all assigned drones (ie, at every instant, from the NxM posterior matrix, extract the M values indicated by assignedMatch)
-					validPosterior = NaN(size(expData.variableStruct(experimentInd).assignedMatch));
-					assignedPosteriorInds = sub2ind(size(expData.variableStruct(experimentInd).runningPosterior), ...
-						repmat(1:N, 1,size(expData.variableStruct(experimentInd).assignedMatch, 2)), ...
-						reshape(expData.variableStruct(experimentInd).assignedMatch, 1,[]), ...
-						reshape(repmat(1:size(expData.variableStruct(experimentInd).assignedMatch,2), size(expData.variableStruct(experimentInd).assignedMatch,1),1), 1,[]));
-					validPosterior(~isnan(assignedPosteriorInds)) = expData.variableStruct(experimentInd).runningPosterior(assignedPosteriorInds(~isnan(assignedPosteriorInds))); % Avoid indexing with NaN indices (crashes) -> Initialize validPosterior with NaNs and only overwrite at non-NaN assignedPosteriorInds
-
-					% Compute time & accuracy stats for every possible confidence threshold
-					confidentAssignments = expData.variableStruct(experimentInd).assignedMatch; % Make a copy of assignedMatch so we don't modify the original data
-					gtAssignment = repmat(expData.variableStruct(experimentInd).groundTruthAssignment, 1,size(confidentAssignments,2));
-					for confidenceThreshInd = 1:length(confidenceThresholds)
-						confidenceThresh = confidenceThresholds(confidenceThreshInd);
-						confidentAssignments(validPosterior<confidenceThresh) = NaN;
-						numConfidentAssignmentsOverTime = sum(~isnan(confidentAssignments), 1);
-						correctOverTime = sum(confidentAssignments==gtAssignment, 1, 'omitNaN');
-						percentCorrectOverTime = correctOverTime ./ max(1, numConfidentAssignmentsOverTime); % Make sure we don't divide 0/0. Make divisor >=1 so output would be 0/1=0 in that case
-						indFirstAllIDd = find(numConfidentAssignmentsOverTime == N, 1); % First point in time where all assignments made were above confidenceThresh
-						indFirstAllIDdCorrectly = find(correctOverTime == N, 1); % First point in time where all assignments made (above confidenceThresh) were correct
-						correctFirstIDdIndiv = false(1,N); % For the first guess ever for each drone (row), note whether it was correct or not
-						for i=1:N
-							indFirstIDindiv = find(~isnan(confidentAssignments(i,:)), 1);
-							if ~isempty(indFirstIDindiv), correctFirstIDdIndiv(i) = (confidentAssignments(i,indFirstIDindiv) == gtAssignment(i,1)); end
-						end
-
-						% MOTA: # correct guesses / # total guesses made
-						experimentsStruct.(typeOfMotion).idMOTA(experimentInd,Nind,confidenceThreshInd,1:actualTimeStepsMOTA+1) = cumsum(correctOverTime(actualTimeIndsMOTA)) ./ max(1, cumsum(numConfidentAssignmentsOverTime(actualTimeIndsMOTA)));
-						%experimentsStruct.(typeOfMotion).idMOTA(experimentInd,Nind,confidenceThreshInd,actualTimeStepsMOTA+2:end) = experimentsStruct.(typeOfMotion).idMOTA(experimentInd,Nind,confidenceThreshInd,actualTimeStepsMOTA+1);
-
-						% idAccuracyFirstEver: % of correct guesses only taking into account the first guess (above confidenceThresh) ever made for each drone (row) individually
-						experimentsStruct.(typeOfMotion).idAccuracyFirstEver(experimentInd,Nind,confidenceThreshInd) = sum(correctFirstIDdIndiv)/N;
-
-						% Accuracy: at the first point in time where all assignments were above the confidenceThresh, how many of them were correct
-						% idTime: How long it took the system to first have all assigments above the confidenceThresh
-						% Note: It could be possible that (eg, for high confidenceThresh values) the system never fully IDs all drones. idTime is initialized with NaNs so just don't write to it in that case
-						if ~isempty(indFirstAllIDd)
-							experimentsStruct.(typeOfMotion).idAccuracy(experimentInd,Nind,confidenceThreshInd) = correctOverTime(indFirstAllIDd)/N;
-							experimentsStruct.(typeOfMotion).idTime(experimentInd,Nind,confidenceThreshInd) = expData.variableStruct(experimentInd).t(indFirstAllIDd);
-						end
-
-						% correctIdTime: How long it took the system to first guess all N drones correctly (above confidenceThresh)
-						if ~isempty(indFirstAllIDdCorrectly)
-							experimentsStruct.(typeOfMotion).correctIdTime(experimentInd,Nind,confidenceThreshInd) = expData.variableStruct(experimentInd).t(indFirstAllIDdCorrectly);
-						end
-
-						dispImproved(sprintf('\nProcessing experiment results for motion "%s" and roomSize "%s":  N=%2d (%2d/%2d), experiment=%2d/%2d, confidenceThresh=%3d%%...', typeOfMotion, roomSize, N, fileNameInd, numel(experimentsStruct.(typeOfMotion).fileNames), experimentInd, length(expData.variableStruct), round(100*confidenceThresh)));
-					end
-					
-					% Update the posterior -> confidence mapping
-					actualPosterior = expData.variableStruct(experimentInd).runningPosterior(:,:,1:expData.paramStruct.frameworkWinSize:end);
-					actualAssignedMatch = expData.variableStruct(experimentInd).assignedMatch(:,1:expData.paramStruct.frameworkWinSize:end);
-					assignedPosteriorInds = sub2ind(size(actualPosterior), repmat(1:N, 1,size(actualPosterior, 3)), reshape(actualAssignedMatch, 1,[]), reshape(repmat(1:size(actualPosterior,3), size(actualAssignedMatch,1),1), 1,[]));
-					assignedPosteriors = NaN(size(actualAssignedMatch)); assignedPosteriors(~isnan(assignedPosteriorInds)) = actualPosterior(assignedPosteriorInds(~isnan(assignedPosteriorInds)));
-					cntTotal = histcounts(assignedPosteriors, confidenceThresholds);
-					incorrectAssignments = actualAssignedMatch~=repmat(expData.variableStruct(experimentInd).groundTruthAssignment, 1,size(actualAssignedMatch,2));
-					assignedPosteriors(incorrectAssignments) = NaN;
-					cntCorrect = histcounts(assignedPosteriors, confidenceThresholds);
- 					experimentsStruct.(typeOfMotion).posteriorToConfidenceMapping(:,Nind,:) = experimentsStruct.(typeOfMotion).posteriorToConfidenceMapping(:,Nind,:) + permute([cntCorrect; cntTotal], [1 3 2]);
-
-					% Compute the pairwise distance between all drones at all time instants
-					distAmongDrones = zeros(N*(N-1)/2, actualTimeIndsMOTA(end));
-					survivingDrones = true(N, actualTimeIndsMOTA(end));
-					avoidDiagDist = threshCollision.*eye(N); % Use this helper matrix to avoid finding drone crashes of a drone with itself
-					prevSurvivors = true(N,1);
-					for tInd = 1:actualTimeIndsMOTA(end)
-						distAmongDrones(:,tInd) = pdist(reshape(expData.variableStruct(experimentInd).posUAVgt(:,tInd,:), [],size(expData.variableStruct(experimentInd).posUAVgt,3)));
-						[deadDronesI, deadDronesJ] = find((squareform(distAmongDrones(:,tInd)) + avoidDiagDist) < threshCollision);
-						prevSurvivors(unique([deadDronesI; deadDronesJ])) = 0;
-						survivingDrones(:,tInd) = prevSurvivors;
-					end
-					experimentsStruct.(typeOfMotion).numSurvivors(experimentInd,Nind,1:actualTimeStepsMOTA+1) = sum(survivingDrones(:,actualTimeIndsMOTA),1)/N;
-% 					[distHistCount, distHistCenters] = hist(distAmongDrones(:), distHistNbins);
-% 					experimentsStruct.(typeOfMotion).distAmongDrones(experimentInd,Nind,:,:) = [distHistCenters', distHistCount'];
-				end
+	% All but ours
+	paramStruct = rmfield(paramStruct, {'ourActuationNumLowRiskIterations', 'ourActuationNumBestAssignments'});
+	paramStruct.sigmaNoiseMotion = 0.04;
+	experimentAssignments = [1:3; 4:6; 7:9; 10:12; 13:15; 1:5:15; 2:5:15; 3:5:15; 4:5:15; 5:5:15];
+	for typeOfMotionCell = {'Random', 'Hovering', 'Landed', 'OneAtATime'}
+		typeOfMotion = typeOfMotionCell{:};
+		paramStruct.typeOfMotion = [lower(typeOfMotion(1)) typeOfMotion(2:end)];
+		data = loadRealExperimentData(struct('datetime',strcat('experiment', strsplit(num2str(1:15),' ')), 'ch',''), ['/Users/carlitos/GoogleDrive/UNI CARLOS/Grad school/Research/Mobisys 18 - Paper/Code/data/Real/' typeOfMotion]);
+		
+		variableStruct(1:end) = [];
+		for experimentInd = 1:size(experimentAssignments,1)
+			runningCorrStruct = runMatchingFrameworkOnGivenData(data(experimentAssignments(experimentInd,:)), [],[], paramStruct.frameworkWinSize);
+			variableStruct(experimentInd).experimentRanOutOfTime = true;
+			variableStruct(experimentInd).groundTruthAssignment = (1:paramStruct.N)';
+			variableStruct(experimentInd).posUAVcam = runningCorrStruct.posCam;
+			variableStruct(experimentInd).posUAVgt = runningCorrStruct.posCam;
+			for f = {'accelUAV', 'accelCam', 't', 'runningWinScore', 'runningLikelihood', 'runningPosterior', 'assignedMatch'}
+				variableStruct(experimentInd).(f{:}) = runningCorrStruct.(f{:});
 			end
+			% plotExperimentResults(runningCorrStruct); % Optional: plot results
 		end
-		dispImproved(sprintf('Done processing experiment results!\n'), 'keepthis');
-		save(processedResultsFileName, 'experimentsStruct', '-v7.3');
-		dispImproved(sprintf('Saved processed experiment results as "%s"!\n', processedResultsFileName), 'keepthis');
+		preProcessedResultsFileName = strjoin([realOutputFolderAndPrefix '_' paramStruct.typeOfMotion '_' paramStruct.N 'N_' string(paramStruct.roomDimensions).join('x') '.mat'], '');
+		save(preProcessedResultsFileName, 'paramStruct','variableStruct', '-v7.3');
+		dispImproved(sprintf('Saved pre-processed experiment results as "%s"!\n', preProcessedResultsFileName), 'keepthis');
 	end
 end
 
+%% Process all experiment data saved
+if ~skipProcess
+	for folderAndPrefixCell = {simOutputFolderAndPrefix} % {realOutputFolderAndPrefix, simOutputFolderAndPrefix}
+		folderAndPrefix = folderAndPrefixCell{:};
+		filesInFolder = dir([folderAndPrefix '_*.mat']);
+		
+		for roomSizeCell = {'4x4x2.mat'} %{'4x4x2.mat', '2x2x1.mat', }
+			roomSize = roomSizeCell{:};
+			processedResultsFileName = [folderAndPrefix '_processed_' roomSize];
+
+			% Initialize experimentsStruct based on the names of the files found
+			experimentsStruct = struct();
+			for fileNameCell = {filesInFolder.name}
+				fileName = fileNameCell{:};
+				fileInfo = strsplit(fileName, '_');
+				if strcmpi(fileInfo{2}, 'processed'), continue; end % Skip processed results
+				if strcmpi(fileInfo{4}, roomSize) % && ~strcmpi(fileInfo{2}, 'landed') % Only process files of the right type of experiment
+					N = str2double(fileInfo{3}(1:end-1));
+					if ~isfield(experimentsStruct, fileInfo{2}) % Then, arrange the *.mat's according to their motion type (fileInfo{2}, ie. random, hovering, landed...)
+						experimentsStruct.(fileInfo{2}).fileNames = {fileName};	     % Initialize the field if it didn't exist
+						experimentsStruct.(fileInfo{2}).N = N;
+					else
+						experimentsStruct.(fileInfo{2}).fileNames{end+1} = fileName; % Otherwise just append the fileName to the end of the list
+						experimentsStruct.(fileInfo{2}).N(end+1) = N;
+					end
+				end
+			end
+
+			%% Actually do the processing
+			for typeOfMotionCell = fieldnames(experimentsStruct)'
+				typeOfMotion = typeOfMotionCell{:};
+
+				% Sort fileNames by N, and save N as a field
+				[experimentsStruct.(typeOfMotion).N, sortedInds] = sort(experimentsStruct.(typeOfMotion).N);
+				experimentsStruct.(typeOfMotion).N = unique(experimentsStruct.(typeOfMotion).N); % There might be repeated values of N (different normalizations), so keep only unique values
+				experimentsStruct.(typeOfMotion).fileNames = experimentsStruct.(typeOfMotion).fileNames(sortedInds); % Sort fileNames by N
+
+				% Initialize remaining fields in the structure
+				experimentsStruct.(typeOfMotion).idMOTA = NaN(repsPerExperiment, length(experimentsStruct.(typeOfMotion).N), length(confidenceThresholds), maxTimeStepsMOTA);
+				experimentsStruct.(typeOfMotion).idAccuracy = zeros(repsPerExperiment, length(experimentsStruct.(typeOfMotion).N), length(confidenceThresholds));
+				experimentsStruct.(typeOfMotion).idAccuracyFirstEver = zeros(size(experimentsStruct.(typeOfMotion).idAccuracy));
+				experimentsStruct.(typeOfMotion).idTime = NaN(size(experimentsStruct.(typeOfMotion).idAccuracy));
+				experimentsStruct.(typeOfMotion).correctIdTime = NaN(size(experimentsStruct.(typeOfMotion).idMOTA));
+				experimentsStruct.(typeOfMotion).correctOverTime = NaN(size(experimentsStruct.(typeOfMotion).idMOTA));
+				experimentsStruct.(typeOfMotion).percentCorrectOverTime = NaN(size(experimentsStruct.(typeOfMotion).idMOTA));
+				experimentsStruct.(typeOfMotion).numSurvivors = NaN(repsPerExperiment, length(experimentsStruct.(typeOfMotion).N), maxTimeStepsMOTA);
+				experimentsStruct.(typeOfMotion).posteriorToConfidenceMapping = zeros(2, length(experimentsStruct.(typeOfMotion).N), length(confidenceThresholds)-1);
+
+				for fileNameInd = 1:numel(experimentsStruct.(typeOfMotion).fileNames)
+					fileName = experimentsStruct.(typeOfMotion).fileNames{fileNameInd};
+					expData = load(fileName); % Load the experiment mat
+					if fileNameInd==1, experimentsStruct.(typeOfMotion).paramStruct = expData.paramStruct; end % Copy static params so they can be accessed later on :)
+					N = expData.paramStruct.N; [~,Nind] = find(experimentsStruct.(typeOfMotion).N==N);
+
+					% Traverse every experiment repetition for these variables
+					for experimentInd = 1:length(expData.variableStruct)
+						% Old experiments need fix: assignedMatch should be initialized randomly (to make accuracy metrics realistic)
+						expData.variableStruct(experimentInd).assignedMatch(:,1:expData.paramStruct.frameworkWinSize,:) = repmat(randperm(N)', 1,expData.paramStruct.frameworkWinSize,length(expData.paramStruct.frameworkWinSize));
+						expData.variableStruct(experimentInd).runningPosterior(:,:,1:expData.paramStruct.frameworkWinSize) = 1/N;
+
+						% Compute longest time we can evaluate MOTA and survivors for, for this experimentInd
+						actualTimeStepsMOTA = min(floor(expData.variableStruct(experimentInd).t(end)*numWindowsPerSecond), maxTimeStepsMOTA);
+						actualTimeIndsMOTA = expData.paramStruct.frameworkWinSize*(0:actualTimeStepsMOTA)+1;
+
+						% Obtain the runningPosterior of all assigned drones (ie, at every instant, from the NxM posterior matrix, extract the M values indicated by assignedMatch)
+						validPosterior = NaN(size(expData.variableStruct(experimentInd).assignedMatch));
+						assignedPosteriorInds = sub2ind(size(expData.variableStruct(experimentInd).runningPosterior), ...
+							repmat(1:N, 1,size(expData.variableStruct(experimentInd).assignedMatch, 2)), ...
+							reshape(expData.variableStruct(experimentInd).assignedMatch, 1,[]), ...
+							reshape(repmat(1:size(expData.variableStruct(experimentInd).assignedMatch,2), size(expData.variableStruct(experimentInd).assignedMatch,1),1), 1,[]));
+						validPosterior(~isnan(assignedPosteriorInds)) = expData.variableStruct(experimentInd).runningPosterior(assignedPosteriorInds(~isnan(assignedPosteriorInds))); % Avoid indexing with NaN indices (crashes) -> Initialize validPosterior with NaNs and only overwrite at non-NaN assignedPosteriorInds
+
+						% Compute time & accuracy stats for every possible confidence threshold
+						confidentAssignments = expData.variableStruct(experimentInd).assignedMatch; % Make a copy of assignedMatch so we don't modify the original data
+						gtAssignment = repmat(expData.variableStruct(experimentInd).groundTruthAssignment, 1,size(confidentAssignments,2));
+						for confidenceThreshInd = 1:length(confidenceThresholds)
+							confidenceThresh = confidenceThresholds(confidenceThreshInd);
+							confidentAssignments(validPosterior<confidenceThresh) = NaN;
+							numConfidentAssignmentsOverTime = sum(~isnan(confidentAssignments), 1);
+							correctOverTime = sum(confidentAssignments==gtAssignment, 1, 'omitNaN'); correctOverTime(:,1:expData.paramStruct.frameworkWinSize,:) = 1; % First guess is random -> 1/N "success rate"
+							percentCorrectOverTime = correctOverTime ./ max(1, numConfidentAssignmentsOverTime); % Make sure we don't divide 0/0. Make divisor >=1 so output would be 0/1=0 in that case
+							indFirstAllIDd = find(numConfidentAssignmentsOverTime == N, 1); % First point in time where all assignments made were above confidenceThresh
+							indFirstAllIDdCorrectly = find(correctOverTime == N, 1); % First point in time where all assignments made (above confidenceThresh) were correct
+							correctFirstIDdIndiv = false(1,N); % For the first guess ever for each drone (row), note whether it was correct or not
+							for i=1:N
+								indFirstIDindiv = find(~isnan(confidentAssignments(i,:)), 1);
+								if ~isempty(indFirstIDindiv), correctFirstIDdIndiv(i) = (confidentAssignments(i,indFirstIDindiv) == gtAssignment(i,1)); end
+							end
+
+							% MOTA: # correct guesses / # total guesses made
+							experimentsStruct.(typeOfMotion).idMOTA(experimentInd,Nind,confidenceThreshInd,1:actualTimeStepsMOTA+1) = cumsum(correctOverTime(actualTimeIndsMOTA)) ./ max(1, cumsum(numConfidentAssignmentsOverTime(actualTimeIndsMOTA)));
+							%experimentsStruct.(typeOfMotion).idMOTA(experimentInd,Nind,confidenceThreshInd,actualTimeStepsMOTA+2:end) = experimentsStruct.(typeOfMotion).idMOTA(experimentInd,Nind,confidenceThreshInd,actualTimeStepsMOTA+1);
+							
+							% correctOverTime: How many correct guesses per iteration
+							experimentsStruct.(typeOfMotion).correctOverTime(experimentInd,Nind,confidenceThreshInd,1:actualTimeStepsMOTA+1) = correctOverTime(actualTimeIndsMOTA);
+							experimentsStruct.(typeOfMotion).percentCorrectOverTime(experimentInd,Nind,confidenceThreshInd,1:actualTimeStepsMOTA+1) = percentCorrectOverTime(actualTimeIndsMOTA);
+
+							% idAccuracyFirstEver: % of correct guesses only taking into account the first guess (above confidenceThresh) ever made for each drone (row) individually
+							experimentsStruct.(typeOfMotion).idAccuracyFirstEver(experimentInd,Nind,confidenceThreshInd) = sum(correctFirstIDdIndiv)/N;
+
+							% Accuracy: at the first point in time where all assignments were above the confidenceThresh, how many of them were correct
+							% idTime: How long it took the system to first have all assigments above the confidenceThresh
+							% Note: It could be possible that (eg, for high confidenceThresh values) the system never fully IDs all drones. idTime is initialized with NaNs so just don't write to it in that case
+							if ~isempty(indFirstAllIDd)
+								experimentsStruct.(typeOfMotion).idAccuracy(experimentInd,Nind,confidenceThreshInd) = correctOverTime(indFirstAllIDd)/N;
+								experimentsStruct.(typeOfMotion).idTime(experimentInd,Nind,confidenceThreshInd) = expData.variableStruct(experimentInd).t(indFirstAllIDd);
+							end
+
+							% correctIdTime: How long it took the system to first guess all N drones correctly (above confidenceThresh)
+							if ~isempty(indFirstAllIDdCorrectly)
+								experimentsStruct.(typeOfMotion).correctIdTime(experimentInd,Nind,confidenceThreshInd) = expData.variableStruct(experimentInd).t(indFirstAllIDdCorrectly);
+							end
+							
+							dispImproved(sprintf('\nProcessing experiment results for motion "%s" and roomSize "%s":  N=%2d (%2d/%2d), experiment=%2d/%2d, confidenceThresh=%3d%%...', typeOfMotion, roomSize, N, fileNameInd, numel(experimentsStruct.(typeOfMotion).fileNames), experimentInd, length(expData.variableStruct), round(100*confidenceThresh)));
+						end
+
+						% Update the posterior -> confidence mapping
+						actualPosterior = expData.variableStruct(experimentInd).runningPosterior(:,:,1:expData.paramStruct.frameworkWinSize:end);
+						actualAssignedMatch = expData.variableStruct(experimentInd).assignedMatch(:,1:expData.paramStruct.frameworkWinSize:end);
+						assignedPosteriorInds = sub2ind(size(actualPosterior), repmat(1:N, 1,size(actualPosterior, 3)), reshape(actualAssignedMatch, 1,[]), reshape(repmat(1:size(actualPosterior,3), size(actualAssignedMatch,1),1), 1,[]));
+						assignedPosteriors = NaN(size(actualAssignedMatch)); assignedPosteriors(~isnan(assignedPosteriorInds)) = actualPosterior(assignedPosteriorInds(~isnan(assignedPosteriorInds)));
+						cntTotal = histcounts(assignedPosteriors, confidenceThresholds);
+						incorrectAssignments = actualAssignedMatch~=repmat(expData.variableStruct(experimentInd).groundTruthAssignment, 1,size(actualAssignedMatch,2));
+						assignedPosteriors(incorrectAssignments) = NaN;
+						cntCorrect = histcounts(assignedPosteriors, confidenceThresholds);
+						experimentsStruct.(typeOfMotion).posteriorToConfidenceMapping(:,Nind,:) = experimentsStruct.(typeOfMotion).posteriorToConfidenceMapping(:,Nind,:) + permute([cntCorrect; cntTotal], [1 3 2]);
+
+						% Compute the pairwise distance between all drones at all time instants
+						distAmongDrones = zeros(N*(N-1)/2, actualTimeIndsMOTA(end));
+						survivingDrones = true(N, actualTimeIndsMOTA(end));
+						avoidDiagDist = threshCollision.*eye(N); % Use this helper matrix to avoid finding drone crashes of a drone with itself
+						prevSurvivors = true(N,1);
+						for tInd = 1:actualTimeIndsMOTA(end)
+							distAmongDrones(:,tInd) = pdist(reshape(expData.variableStruct(experimentInd).posUAVgt(:,tInd,:), [],size(expData.variableStruct(experimentInd).posUAVgt,3)));
+							[deadDronesI, deadDronesJ] = find((squareform(distAmongDrones(:,tInd)) + avoidDiagDist) < threshCollision);
+							shouldDie = unique([deadDronesI; deadDronesJ]);
+							shouldDie(prevSurvivors(shouldDie)==false) = []; % Dead drones can't "kill" other drones
+							prevSurvivors(shouldDie) = 0;
+							survivingDrones(:,tInd) = prevSurvivors;
+						end
+						experimentsStruct.(typeOfMotion).numSurvivors(experimentInd,Nind,1:actualTimeStepsMOTA+1) = sum(survivingDrones(:,actualTimeIndsMOTA),1)/N;
+	% 					[distHistCount, distHistCenters] = hist(distAmongDrones(:), distHistNbins);
+	% 					experimentsStruct.(typeOfMotion).distAmongDrones(experimentInd,Nind,:,:) = [distHistCenters', distHistCount'];
+					end
+				end
+			end
+			save(processedResultsFileName, 'experimentsStruct', '-v7.3');
+			dispImproved(sprintf('Saved processed experiment results as "%s"!\n', processedResultsFileName), 'keepthis');
+		end
+	end
+	dispImproved(sprintf('Done processing experiment results!\n'), 'keepthis');
+end
+
 %%
-% plotExperimentResults(struct('experimentMatFileName',[simOutputFolder 'MatchingFramework_random_5N_norm1_5x5x2.5.mat'], 'experimentInd',1), struct('rawAccel',true, 'scatterCorr',false, 'runningLikelihoodVsWinSize',false, 'runningLikelihoodFull',true));
-% generateDronesInRoomVideo([], struct('experimentMatFileName',[simOutputFolder 'MatchingFramework_random_5N_norm1_5x5x2.5.mat'], 'experimentInd',1), [], [], false);
+% plotExperimentResults(struct('experimentMatFileName',[simOutputFolderAndPrefix '_random_5N_norm1_5x5x2.5.mat'], 'experimentInd',1), struct('rawAccel',true, 'scatterCorr',false, 'runningLikelihoodVsWinSize',false, 'runningLikelihoodFull',true));
+% generateDronesInRoomVideo([], struct('experimentMatFileName',[simOutputFolderAndPrefix '_random_5N_norm1_5x5x2.5.mat'], 'experimentInd',1), [], [], false);
 
 %% Plot sensor data processing figure
 if false
@@ -220,102 +278,144 @@ if false
 	saveFigToFile('iterativeUpdate');
 end
 
-%% Plot MOTA and survivors vs type of motion over time
+%% Plot 3N data results
 if false
-	lWidth = 3; lWidthErr = 1; fSizeLabels = 17; fSizeAxes = 13.5;
-	N = 10; tEnd = 150;
-	for roomSizeCell = {'5x5x2.5.mat'} %{'5x5x2.5.mat', '15x10x3.mat'}
+ 	lWidth = 2; lWidthErr = 1; fSizeLabels = 17; fSizeAxes = 13.5;
+	N = 3; tEnd = 20;
+	for roomSizeCell = {'2x2x1.mat'}
 		roomSize = roomSizeCell{:};
-		processedResultsFileName = [simOutputFolder typeOfExperiment '_processed_' roomSize];
+		for folderAndPrefixCell = {simOutputFolderAndPrefix, realOutputFolderAndPrefix}
+			folderAndPrefix = folderAndPrefixCell{:};
+			processedResultsFileName = [folderAndPrefix '_processed_' roomSize];
+			load(processedResultsFileName);
+			typeOfMotionCell = {'ours', 'random', 'oneAtATime', 'hovering', 'landed'};
+			legendCell = {'Ours', 'Random', 'oneAtATime', 'hovering', 'landed'};
+			if isequal(folderAndPrefix, simOutputFolderAndPrefix)
+				simOrReal = 'Sim';
+			else
+				simOrReal = 'Real';
+			end
+			typeOfMotionCell{1} = [typeOfMotionCell{1} simOrReal];
+
+			figure('Units','pixels', 'Position',[200 200, 560 375]);
+			ax = gobjects(2,1); h = gobjects(2,numel(typeOfMotionCell));
+			for typeOfMotionInd = 1:numel(typeOfMotionCell)
+				typeOfMotion = typeOfMotionCell{typeOfMotionInd};
+				[~,Nind] = find(experimentsStruct.(typeOfMotion).N==N);
+
+				% Compute MOTA and numSurvivors stats (mean, std)
+				[MOTAmean, MOTAstd, numSurvivorsMean, numSurvivorsStd] = computeMotaAndSurvivalStats(experimentsStruct, typeOfMotion);
+				t = (0:size(numSurvivorsMean,2)-1) / numWindowsPerSecond;
+
+				% Plot MOTA
+				ax(1) = subplot(2,1,1); hold on;
+				h(1,typeOfMotionInd) = errorbar(t, MOTAmean(Nind,:), MOTAstd(Nind,:), 'LineWidth',lWidthErr);
+				plot(t, MOTAmean(Nind,:), 'LineWidth',lWidth, 'Color',get(h(1,typeOfMotionInd),'Color'));
+				xlim([0,tEnd]); ylim([0 100]); ylabel('MOTA (%)', 'FontSize',fSizeLabels+1);
+
+				% Plot survival rate
+				ax(2) = subplot(2,1,2); hold on;
+				h(2,typeOfMotionInd) = errorbar(t, numSurvivorsMean(Nind,:), numSurvivorsStd(Nind,:), 'LineWidth',lWidthErr);
+				plot(t, numSurvivorsMean(Nind,:), 'LineWidth',lWidth, 'Color',get(h(2,typeOfMotionInd),'Color'));
+				xlim([0,tEnd]); ylim([-0.05 1.05]); ylabel('Survival rate (%)', 'FontSize',fSizeLabels+1);
+			end
+			suplabel('Time (s)', 'x', ax(:), -0.01, 'FontSize',fSizeLabels);
+			set(ax(:), 'Box','on', 'FontSize',fSizeAxes);
+			l=legend(h(1,:), legendCell, 'Orientation','horizontal', 'FontSize',fSizeAxes); set(l, 'Units','normalized', 'Position',[0.17 0.494 0.7 0]);
+			saveFigToFile(['MOTAandSurvivalOverTimeForDifferentTypeOfActuation_' num2str(N) 'N_' simOrReal]);
+		end
+	end
+end
+
+%% Plot (simulated) MOTA and survivors vs TYPE OF MOTION over time
+if true
+	lWidth = 2; lWidthErr = 1; fSizeLabels = 17; fSizeAxes = 13.5;
+	N = 24; tEnd = 30;
+	for roomSizeCell = {'4x4x2.mat'}
+		roomSize = roomSizeCell{:};
+		processedResultsFileName = [simOutputFolderAndPrefix '_processed_' roomSize];
 		load(processedResultsFileName);
-		typeOfMotionCell = fieldnames(experimentsStruct)';
+		typeOfMotionCell = {'random', 'hovering', 'landed'}; % fieldnames(experimentsStruct)';
+		legendCell = {'Random motion', 'Hovering', 'Landed'};
 		
 		figure('Units','pixels', 'Position',[200 200, 560 375]);
 		ax = gobjects(2,1); h = gobjects(2,numel(typeOfMotionCell));
 		for typeOfMotionInd = 1:numel(typeOfMotionCell)
 			typeOfMotion = typeOfMotionCell{typeOfMotionInd};
+			[~,Nind] = find(experimentsStruct.(typeOfMotion).N==N);
 			
 			% Compute MOTA and numSurvivors stats (mean, std)
-			MOTAmean = squeeze(mean(experimentsStruct.(typeOfMotion).idMOTA(:,:,1,:), 1, 'omitnan'));
-			MOTAstd = squeeze(std(experimentsStruct.(typeOfMotion).idMOTA(:,:,1,:), 0,1, 'omitnan'));
-			numSurvivorsMean = squeeze(mean(experimentsStruct.(typeOfMotion).numSurvivors, 1, 'omitnan'));
-			numSurvivorsStd = squeeze(std(experimentsStruct.(typeOfMotion).numSurvivors, 0,1, 'omitnan'));
+			[MOTAmean, MOTAstd, numSurvivorsMean, numSurvivorsStd] = computeMotaAndSurvivalStats(experimentsStruct, typeOfMotion);
 			t = (0:size(numSurvivorsMean,2)-1) / numWindowsPerSecond;
 
 			% Plot MOTA
 			ax(1) = subplot(2,1,1); hold on;
-			h(1,typeOfMotionInd) = errorbar(t, MOTAmean(N-1,:), MOTAstd(N-1,:), 'LineWidth',lWidthErr);
-			plot(t, MOTAmean(N-1,:), 'LineWidth',lWidthErr, 'Color',get(h(1,typeOfMotionInd),'Color'));
-			xlim([0,tEnd]); ylim([0 1]); ylabel('MOTA (%)', 'FontSize',fSizeLabels+1);
+			h(1,typeOfMotionInd) = errorbar(t, MOTAmean(Nind,:), MOTAstd(Nind,:), 'LineWidth',lWidthErr);
+			plot(t, MOTAmean(Nind,:), 'LineWidth',lWidth, 'Color',get(h(1,typeOfMotionInd),'Color'));
+			xlim([0,tEnd]); ylim([0 100]); ylabel('Accuracy (%)', 'FontSize',fSizeLabels+1);
 			
 			% Plot survival rate
 			ax(2) = subplot(2,1,2); hold on;
-			h(2,typeOfMotionInd) = errorbar(t, numSurvivorsMean(N-1,:), numSurvivorsStd(N-1,:), 'LineWidth',lWidthErr);
-			plot(t, numSurvivorsMean(N-1,:), 'LineWidth',lWidthErr, 'Color',get(h(2,typeOfMotionInd),'Color'));
+			h(2,typeOfMotionInd) = errorbar(t, numSurvivorsMean(Nind,:), numSurvivorsStd(Nind,:), 'LineWidth',lWidthErr);
+			plot(t, numSurvivorsMean(Nind,:), 'LineWidth',lWidth, 'Color',get(h(2,typeOfMotionInd),'Color'));
 			xlim([0,tEnd]); ylim([-0.05 1.05]); ylabel('Survival rate (%)', 'FontSize',fSizeLabels+1);
 		end
 		suplabel('Time (s)', 'x', ax(:), -0.01, 'FontSize',fSizeLabels);
 		set(ax(:), 'Box','on', 'FontSize',fSizeAxes);
-		l=legend(h(1,[3 1 2]), {'Random motion', 'Hovering', 'Landed'}, 'Orientation','horizontal', 'FontSize',fSizeAxes); set(l, 'Units','normalized', 'Position',[0.17 0.494 0.7 0]);
-		saveFigToFile(['MOTAandSurvivalOverTimeForDifferentTypeOfMotion_' num2str(N) 'N']);
+		l=legend(h(1,:), legendCell, 'Orientation','horizontal', 'FontSize',fSizeAxes); set(l, 'Units','normalized', 'Position',[0.17 0.494 0.7 0]);
+		saveFigToFile(['AccuracyAndSurvivalOverTimeForDifferentTypeOfMotion_' num2str(N) 'N']);
 	end
 end
 
-%% Plot MOTA and survivors vs type of motion over time
-if false
-	lWidth = 3; lWidthErr = 1; fSizeLabels = 17; fSizeAxes = 13.5;
-	tEnd = 100;
-	for roomSizeCell = {'5x5x2.5.mat'} %{'5x5x2.5.mat', '15x10x3.mat'}
+%% Plot MOTA and survivors vs DRONE DENSITY over time
+if true
+	lWidth = 2; lWidthErr = 1; fSizeLabels = 17; fSizeAxes = 13.5;
+	tEnd = 30;
+	for roomSizeCell = {'4x4x2.mat'} %{'5x5x2.5.mat', '15x10x3.mat'}
 		roomSize = roomSizeCell{:};
-		processedResultsFileName = [simOutputFolder typeOfExperiment '_processed_' roomSize];
+		processedResultsFileName = [simOutputFolderAndPrefix '_processed_' roomSize];
 		load(processedResultsFileName);
 		typeOfMotionCell = fieldnames(experimentsStruct)';
 
 		for typeOfMotionInd = 1:numel(typeOfMotionCell)
 			typeOfMotion = typeOfMotionCell{typeOfMotionInd};
-			if strcmpi(typeOfMotion, 'landed'), N = 5:5:15; else, N = 5:5:25; end
 			
 			figure('Units','pixels', 'Position',[200 200, 560 375]);
-			ax = gobjects(2,1); h = gobjects(2,numel(N));
+			ax = gobjects(2,1); h = gobjects(2,numel(experimentsStruct.(typeOfMotion).N));
 
 			% Compute MOTA and numSurvivors stats (mean, std)
-			MOTAmean = squeeze(mean(experimentsStruct.(typeOfMotion).idMOTA(:,:,1,:), 1, 'omitnan'));
-			MOTAstd = squeeze(std(experimentsStruct.(typeOfMotion).idMOTA(:,:,1,:), 0,1, 'omitnan'));
-			numSurvivorsMean = squeeze(mean(experimentsStruct.(typeOfMotion).numSurvivors, 1, 'omitnan'));
-			numSurvivorsStd = squeeze(std(experimentsStruct.(typeOfMotion).numSurvivors, 0,1, 'omitnan'));
+			[MOTAmean, MOTAstd, numSurvivorsMean, numSurvivorsStd] = computeMotaAndSurvivalStats(experimentsStruct, typeOfMotion);
 			t = (0:size(numSurvivorsMean,2)-1) / numWindowsPerSecond;
 
-			for NarrInd = 1:numel(N)
-				Nind = N(NarrInd)-1;
-
+			for Nind = 1:numel(experimentsStruct.(typeOfMotion).N)
 				% Plot MOTA
 				ax(1) = subplot(2,1,1); hold on;
-				h(1,NarrInd) = errorbar(t, MOTAmean(Nind,:), MOTAstd(Nind,:), 'LineWidth',lWidthErr);
-				plot(t, MOTAmean(Nind,:), 'LineWidth',lWidth, 'Color',get(h(1,NarrInd),'Color'));
-				xlim([0,tEnd]); ylim([0 1]); ylabel('MOTA (%)', 'FontSize',fSizeLabels+1);
+				h(1,Nind) = errorbar(t, MOTAmean(Nind,:), MOTAstd(Nind,:), 'LineWidth',lWidthErr);
+				plot(t, MOTAmean(Nind,:), 'LineWidth',lWidth, 'Color',get(h(1,Nind),'Color'));
+				xlim([0,tEnd]); ylim([0 100]); ylabel('Accuracy (%)', 'FontSize',fSizeLabels+1);
 
 				% Plot survival rate
 				ax(2) = subplot(2,1,2); hold on;
-				h(2,NarrInd) = errorbar(t, numSurvivorsMean(Nind,:), numSurvivorsStd(Nind,:), 'LineWidth',lWidthErr);
-				plot(t, numSurvivorsMean(Nind,:), 'LineWidth',lWidth, 'Color',get(h(2,NarrInd),'Color'));
+				h(2,Nind) = errorbar(t, numSurvivorsMean(Nind,:), numSurvivorsStd(Nind,:), 'LineWidth',lWidthErr);
+				plot(t, numSurvivorsMean(Nind,:), 'LineWidth',lWidth, 'Color',get(h(2,Nind),'Color'));
 				xlim([0,tEnd]); ylim([-0.05 1.05]); ylabel('Survival rate (%)', 'FontSize',fSizeLabels+1);
 			end
 
 			suplabel('Time (s)', 'x', ax(:), -0.01, 'FontSize',fSizeLabels);
 			set(ax(:), 'Box','on', 'FontSize',fSizeAxes);
-			l=legend(h(1,:), cellstr(strcat('N=',num2str((N)'))), 'Orientation','horizontal', 'FontSize',fSizeAxes); set(l, 'Units','normalized', 'Position',[0.17 0.494 0.7 0]);
-			saveFigToFile(['MOTAandSurvivalOverTimeForDifferentN_' typeOfMotion]);
+			l=legend(h(1,:), cellstr(strcat('N=',num2str((experimentsStruct.(typeOfMotion).N)'))), 'Orientation','horizontal', 'FontSize',fSizeAxes); set(l, 'Units','normalized', 'Position',[0.17 0.494 0.7 0]);
+			saveFigToFile(['AccuracyAndSurvivalOverTimeForDifferentN_' typeOfMotion]);
 		end
 	end
 end
 
 %% Plot posterior vs confidence
-if true
+if false
 	lWidth = 2; fSizeLabels = 17; fSizeAxes = 14;
 	tEnd = 100;
 	for roomSizeCell = {'5x5x2.5.mat'} %{'5x5x2.5.mat', '15x10x3.mat'}
 		roomSize = roomSizeCell{:};
-		processedResultsFileName = [simOutputFolder typeOfExperiment '_processed_' roomSize];
+		processedResultsFileName = [simOutputFolderAndPrefix '_processed_' roomSize];
 		load(processedResultsFileName);
 		typeOfMotionCell = fieldnames(experimentsStruct)';
 		N = 5:5:20;
@@ -352,7 +452,7 @@ if false
 	Q = [2 4 8 16 32];
 	roomSize = '5x5x2.5.mat';
 	typeOfMotion = 'hovering'; %'ours';
-	processedResultsFileName = [simOutputFolder typeOfExperiment '_processed_' roomSize];
+	processedResultsFileName = [simOutputFolderAndPrefix '_processed_' roomSize];
 	load(processedResultsFileName);
 	
 	figure('Units','pixels', 'Position',[200 200, 560 375]);
@@ -387,7 +487,7 @@ if false
 end
 
 %% Plot raw accel for real vs simulation
-if true
+if false
 	data = loadRealExperimentData(struct('datetime',{'2017-02-19 17-59-23','2017-02-19 18-01-29','2017-02-19 18-22-23','2017-02-19 18-24-25'}, 'ch','75')); % '2017-02-19 17-59-23','2017-02-19 18-01-29','2017-02-19 18-22-23','2017-02-19 18-24-25'
 	d = 3; strAx = char('X'+d-1); % z-axis
 	runningCorrStruct = runMatchingFrameworkOnGivenData(data, [], [], 12, d);
@@ -400,7 +500,7 @@ if true
 	N = 4; Nind = N-1;
 	roomSize = '5x5x2.5.mat';
 	typeOfMotion = 'random';
-	aux = load([simOutputFolder 'MatchingFramework_simulation_4N_norm0_8x5x2.5.mat']);
+	aux = load([simOutputFolderAndPrefix '_simulation_4N_norm0_8x5x2.5.mat']);
 	lWidth = 2.5; fSizeLabels = 15; fSizeAxes = 13.5;
 
 	ax = gobjects(2,length(data));
@@ -430,7 +530,7 @@ if false
 	N = 5; Nind = N-1;
 	roomSize = '5x5x2.5.mat';
 	typeOfMotion = 'random';
-	processedResultsFileName = [simOutputFolder typeOfExperiment '_processed_' roomSize];
+	processedResultsFileName = [simOutputFolderAndPrefix '_processed_' roomSize];
 	load(processedResultsFileName);
 	
 	figure('Units','pixels', 'Position',[200 200, 560 200]);
@@ -454,9 +554,9 @@ end
 return
 
 %% Plot figures from processed *.mat files
-for roomSizeCell = {'5x5x2.5.mat'} %{'5x5x2.5.mat', '15x10x3.mat'}
+for roomSizeCell = {'4x4x2.mat'} %{'5x5x2.5.mat', '15x10x3.mat'}
 	roomSize = roomSizeCell{:};
-	processedResultsFileName = [simOutputFolder typeOfExperiment '_processed_' roomSize];
+	processedResultsFileName = [simOutputFolderAndPrefix '_processed_' roomSize];
 	load(processedResultsFileName);
 	%idMOTA, idAccuracyFirstEver, [idAccuracy], idTime, [correctIdTime], distAmongDrones
 	%%
@@ -464,7 +564,7 @@ for roomSizeCell = {'5x5x2.5.mat'} %{'5x5x2.5.mat', '15x10x3.mat'}
 	% boxplot(squeeze(experimentsStruct.(typeOfMotion).idTime(:,end,1,:)), confidenceThresholds, 'boxstyle','filled', 'medianstyle','target', 'sym','r.', 'positions',confidenceThresholds);
 	% yyaxis right;
 	% boxplot(squeeze(experimentsStruct.(typeOfMotion).idMOTA(:,end,1,:)), confidenceThresholds, 'boxstyle','filled', 'medianstyle','target', 'sym','r.', 'positions',confidenceThresholds);
-	for N = 5:5:25
+	for N = ceil(24./[5:-1:1])
 		Nind = N-1;
 		for normTypeInd = 1 %:normalizationTypes
 			for typeOfMotionCell = {'random', 'hovering'} % fieldnames(experimentsStruct)'
