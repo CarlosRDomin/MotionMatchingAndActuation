@@ -36,10 +36,11 @@ function out = runMatchingFrameworkOnGivenData(data, iUAVs, iCams, frameworkWinS
 	if cropToMinT, t = tMinT; else, t = tMaxT; end	% If requested, crop all signals to the shortest signal. Otherwise, zero-pad all signals to the longest signal
 	if ~isnan(maxExperimentTime), t(t>maxExperimentTime)=[]; end	% If requested, limit the maximum experiment time
 	
-	outFields = {'runningWinScore','runningLikelihood','runningPosterior','assignedMatch','N','M','iCams','dims','frameworkWinSize','cropToMinT','t','accelCam','accelUAV'};
+	outFields = {'runningWinScore','runningLikelihood','runningPosterior','assignedMatch','N','M','iCams','dims','frameworkWinSize','cropToMinT','t','accelCam','accelUAV', 'posCam', 'velCam'};
 	out = cell2struct(cell(1, length(outFields)), outFields, 2);
 	%%% t = zeros(M, lenT, length(dims));
 	[accelUAV, accelCam, runningWinScore, runningLikelihood, runningPosterior, assignedMatch] = initFrameworkVars(N, M, dims, t, frameworkWinSize);
+	posCam = accelCam; velCam = accelCam;
 	
 	for iD = 1:length(dims)
 		d = dims(iD);
@@ -47,6 +48,8 @@ function out = runMatchingFrameworkOnGivenData(data, iUAVs, iCams, frameworkWinS
 		for iC = 1:M
 			iCam = iCams(iC);
 			accelCam(iC,:,iD) = interp1(data(iCam).a_cam.(strAx).t, data(iCam).a_cam.(strAx).measured, t);
+			velCam(iC,:,iD) = interp1(data(iCam).v_cam.(strAx).t, data(iCam).v_cam.(strAx).measured, t);
+			posCam(iC,:,iD) = interp1(data(iCam).p_cam.(strAx).t, data(iCam).p_cam.(strAx).measured, t);
 		end
 		for iU = 1:N
 			iUAV = iUAVs(iU);

@@ -11,7 +11,7 @@ function [accel, vel, pos] = predictPosVelAccelFromCommand(commandRho, commandTh
 	if nargin<9 || isempty(sigmaNoiseMotion), sigmaNoiseMotion = 0.25; end
 	
 	% Compute how much we want to move in each cartesian direction
-	deltaP = commandToDeltaP(commandRho, commandTheta, commandPhi); % numel(commandRho) x 1 x 3
+	deltaP = reshape(commandToDeltaP(commandRho, commandTheta, commandPhi), numel(commandRho),1,[]); % numel(commandRho) x 1 x 3
 
 	t = 1/spotterFps : 1/spotterFps : deltaT;
 	tt = 0 : 1/(10*spotterFps) : deltaT; % Avoid aliasing by generating the signal at a high sample rate

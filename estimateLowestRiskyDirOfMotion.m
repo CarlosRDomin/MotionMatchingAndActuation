@@ -2,7 +2,7 @@
 % Finds the safest direction for all drones to move at once (cross product of the 2 shortest drone pairs)
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-function [maxRho, dirTheta, dirPhi] = estimateLowestRiskyDirOfMotion(posUAV, roomDimensions, threshRisk)
+function [rhoBounds, dirTheta, dirPhi] = estimateLowestRiskyDirOfMotion(posUAV, roomDimensions, threshRisk, deltaP)
 	% Compute the distance among pairs of drones and from each drone to each wall
 	distAmongDrones = pdist(posUAV);
 	distToWalls = [posUAV - zeros(size(posUAV)), repmat(roomDimensions, size(posUAV,1),1) - posUAV];
@@ -44,7 +44,7 @@ function [maxRho, dirTheta, dirPhi] = estimateLowestRiskyDirOfMotion(posUAV, roo
 	
 	%maxRho = d(1); % This is very safe, should be the shortest distance in the direction of motion
 	dirXYZ = computeDirXYZ(shortestVectors);
-	[dirXYZ, maxRho] = findBestWayInDirection(dirXYZ, posUAV, triUppDistAmongDrones, distToWalls, roomDimensions, threshRisk);
+	[dirXYZ, rhoBounds] = findBestWayInDirection(dirXYZ, posUAV, triUppDistAmongDrones, distToWalls, roomDimensions, threshRisk, [], deltaP);
 	[dirTheta,dirPhi] = cart2sph(dirXYZ(1), dirXYZ(2), dirXYZ(3));
 	dirPhi = pi/2 - dirPhi;
 end
@@ -68,19 +68,20 @@ function isValid = testShortestVectorsValid(shortestVectors)
 	isValid = (all(~isnan(shortestVectors(:,4))) && norm(computeDirXYZ(shortestVectors)) > 1e-5);
 end
 
-function [dirXYZ, maxRho] = findBestWayInDirection(dirXYZ, posUAV, triUppDistAmongDrones, distToWalls, roomDimensions, threshRisk, riskMode)
+function [dirXYZ, rhoBounds] = findBestWayInDirection(dirXYZ, posUAV, triUppDistAmongDrones, distToWalls, roomDimensions, threshRisk, riskMode, deltaP)
 	if nargin<7 || isempty(riskMode), riskMode = 1; end % riskMode: 0 is very conservative (when in doubt, hover), 1 is less conservative (drone-drone constraints already within threshRisk are ignored), 2 is way less conservative (maxRho is the rho that would hit a drone)
+	if nargin<8, deltaP = []; end
 	if riskMode==0, distDronesAlreadyInsideThreshRisk = 0; elseif riskMode==1, distDronesAlreadyInsideThreshRisk = NaN; end
 	
 	% Find the direction (not the "way") as the cross product of the 2 shortest vectors
 	dirXYZ = dirXYZ./norm(dirXYZ); % Make unitary
-	maxRho = NaN(1,2); % maxRho(1) is in the positive +dirXYZ way; maxRho(2) is in -dirXYZ
+	rhoBounds = NaN(1,2); % maxRho(1) is in the positive +dirXYZ way; maxRho(2) is in -dirXYZ
 	
 	% Find (if any) restricted ways: if there's a drone closer to a wall than threshRisk, set the corresponding maxRho to 0 to avoid it getting even closer to the wall
 	angleOfDirXYZwrtWalls = sign(dot(repmat(dirXYZ, 6,1),[eye(3);-eye(3)], 2)'); % Use the sign of the dot product dirXYZ•wallAwayVect to determine whether +dirXYZ brings you closer or away from the wall
 	for riskyWallsInd = find(any(distToWalls<threshRisk, 1)) % For every wall with drones closer than threshRisk
 		if angleOfDirXYZwrtWalls(riskyWallsInd) ~= 0 % Corner case, if dirXYZ is perpendicular to the wall, then no need to take action (we're not gonna get closer)
-			maxRho(1+(angleOfDirXYZwrtWalls(riskyWallsInd)==1)) = 0; % If dirXYZ takes you away from the wall (positive dot product), maxRho in the -dirXYZ direction (maxRho(2)) should be 0; and viceversa: if dirXYZ takes you into the wall (negative dot product), do not allow to go in +dirXYZ direction (maxRho(1)=0)
+			rhoBounds(1+(angleOfDirXYZwrtWalls(riskyWallsInd)==1)) = 0; % If dirXYZ takes you away from the wall (positive dot product), maxRho in the -dirXYZ direction (maxRho(2)) should be 0; and viceversa: if dirXYZ takes you into the wall (negative dot product), do not allow to go in +dirXYZ direction (maxRho(1)=0)
 		end
 	end
 	
@@ -101,18 +102,17 @@ function [dirXYZ, maxRho] = findBestWayInDirection(dirXYZ, posUAV, triUppDistAmo
 		
 		% Now, find the minimum between the current minimum distance in each way, and the new constraints obtained for this drone
 		minPosLambda = min(lambda(sign(lambda)==1));
-		if ~isempty(minPosLambda), maxRho(1) = min(maxRho(1), minPosLambda); end
+		if ~isempty(minPosLambda), rhoBounds(1) = min(rhoBounds(1), minPosLambda); end
 		minNegLambda = min(abs(lambda(sign(lambda)==-1)));
-		if ~isempty(minNegLambda), maxRho(2) = min(maxRho(2), minNegLambda); end
+		if ~isempty(minNegLambda), rhoBounds(2) = min(rhoBounds(2), minNegLambda); end
 	end
 	
 	% Finally, choose which direction is less risky (higher maxRho)
-	maxRho(isnan(maxRho))=0; % Testing for > or < against a NaN always returns false. Fix that by replacing NaN by 0.
-	if maxRho(1) >= maxRho(2)
-		maxRho = maxRho(1);
-	else
-		maxRho = maxRho(2);
+	rhoBounds(isnan(rhoBounds))=0; % Testing for > or < against a NaN always returns false. Fix that by replacing NaN by 0.
+	if rhoBounds(2) > rhoBounds(1)
+		rhoBounds = rhoBounds(2:-1:1); % Let's always have rhoBounds(1) be greater than rhoBounds so dirXYZ indicates dir of max motion
 		dirXYZ = -dirXYZ;
 	end
-	maxRho = max(maxRho, threshRisk/4);
+	% rhoBounds = sign(rhoBounds).*max(abs(rhoBounds), threshRisk/4);
+	if ~isempty(deltaP), rhoBounds = min(rhoBounds, deltaP); end % Make sure it's a feasible command
 end
