@@ -198,11 +198,8 @@ for roomDimensionsScale = 2 %[1 2]
 										if P_assignment<0.2*P_total/(ourActuationNumBestAssignments-1), break; end % Stop if this combination is already unlikely
 										P_total = P_total + P_assignment;
 										%sortedAssignment = sortrows([assignments; [unassignedUAVs(:) NaN(length(unassignedUAVs),1)]]);
-										[command,newP,exitFlag,output] = fmincon(@(x) (-estimateImprovementOfCommand(x,assignments,runningPriorTemp,[],sigmaNoiseAccel,[],spotterCam.fps,deltaT)), ...
-											startingCommand,[],[],[],[],zeros(3*N,1),repmat([deltaP,2*pi,pi]',N,1), ...
-											... %@(x) deal(threshRisk-estimateRiskOfCommand(x,assignments,posUAVcam(:,currTind,:), roomDimensions), 0), optimoptions('fmincon', 'Algorithm','sqp', 'FunctionTolerance',1e-3, 'UseParallel',true, 'Display','iter-detailed')); %, optimoptions('fmincon', 'Algorithm','active-set'));
-											@(x) getNonLinearConstraintsForOptimization(x, assignments, posUAVcam(:,currTind,:), roomDimensions, threshRisk), optimoptions('fmincon', 'FunctionTolerance',1e-3)); %, 'Algorithm','sqp', 'FunctionTolerance',1e-3, 'UseParallel',true, 'Display','iter-detailed'));
-										expectedCommand = expectedCommand + P_assignment.*commandToDeltaP(command(1:3:end), command(2:3:end), command(3:3:end));
+										[command,newP,exitFlag,output] = findOptimalCommandGivenAssignment(assignments, posUAVcam(:,currTind,:), roomDimensions, threshRisk, runningPriorTemp, spotterCam, deltaP, deltaT, sigmaNoiseAccel, startingCommand);
+										expectedCommand = expectedCommand + P_assignment.*reshape(command, 3,[])';
 									end
 									command = deltaPtoCommand(expectedCommand./P_total);
 								end
@@ -283,6 +280,26 @@ for roomDimensionsScale = 2 %[1 2]
 
 						%% Play a video of the simulation
 						generateDronesInRoomVideo([], posUAVgt, roomDimensions, spotterCam, false);
+						
+						%% Compute survival rate
+						threshCollision=0.25;
+						distAmongDrones = zeros(N*(N-1)/2, currTind);
+						survivingDrones = true(N, currTind);
+						avoidDiagDist = threshCollision.*eye(N); % Use this helper matrix to avoid finding drone crashes of a drone with itself
+						prevSurvivors = true(N,1);
+						for tInd = 1:currTind
+							distAmongDrones(:,tInd) = pdist(reshape(posUAVgt(:,tInd,:), [],size(posUAVgt,3)));
+							[deadDronesI, deadDronesJ] = find((squareform(distAmongDrones(:,tInd)) + avoidDiagDist) < threshCollision);
+							shouldDie = unique([deadDronesI; deadDronesJ]);
+							shouldDie(prevSurvivors(shouldDie)==false) = []; % Dead drones can't "kill" other drones
+							prevSurvivors(shouldDie) = 0;
+							survivingDrones(:,tInd) = prevSurvivors;
+						end
+						survivalRate = sum(survivingDrones,1)/N;
+						
+						figure;
+						subplot(2,1,1); plot(min(distAmongDrones,[],1)); title('Minimum drone-drone distance');
+						subplot(2,1,2); plot(survivalRate); title('Survival rate');
 					end
 				end
 				dispImproved(sprintf('\n\nFinished %d experiments with N=%d, typeOfMotion="%s"\n\n', repsPerExperiment, N, typeOfMotion), 'keepthis');
