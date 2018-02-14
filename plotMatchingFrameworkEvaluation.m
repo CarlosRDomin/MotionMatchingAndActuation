@@ -64,11 +64,11 @@ end
 
 %% Process all experiment data saved
 if ~skipProcess
-	for folderAndPrefixCell = {simOutputFolderAndPrefix} % {realOutputFolderAndPrefix, simOutputFolderAndPrefix}
+	for folderAndPrefixCell = {realOutputFolderAndPrefix, simOutputFolderAndPrefix}
 		folderAndPrefix = folderAndPrefixCell{:};
 		filesInFolder = dir([folderAndPrefix '_*.mat']);
 		
-		for roomSizeCell = {'4x4x2.mat'} %{'4x4x2.mat', '2x2x1.mat', }
+		for roomSizeCell = {'4x4x2.mat', '2x2x1.mat', }
 			roomSize = roomSizeCell{:};
 			processedResultsFileName = [folderAndPrefix '_processed_' roomSize];
 
@@ -278,100 +278,63 @@ if false
 	saveFigToFile('iterativeUpdate');
 end
 
-%% Plot 3N data results
-if false
- 	lWidth = 2; lWidthErr = 1; fSizeLabels = 17; fSizeAxes = 13.5;
-	N = 3; tEnd = 20;
-	for roomSizeCell = {'2x2x1.mat'}
-		roomSize = roomSizeCell{:};
-		for folderAndPrefixCell = {simOutputFolderAndPrefix, realOutputFolderAndPrefix}
-			folderAndPrefix = folderAndPrefixCell{:};
-			processedResultsFileName = [folderAndPrefix '_processed_' roomSize];
-			load(processedResultsFileName);
-			typeOfMotionCell = {'ours', 'random', 'oneAtATime', 'hovering', 'landed'};
-			legendCell = {'Ours', 'Random', 'oneAtATime', 'hovering', 'landed'};
-			if isequal(folderAndPrefix, simOutputFolderAndPrefix)
-				simOrReal = 'Sim';
-			else
-				simOrReal = 'Real';
-			end
-			typeOfMotionCell{1} = [typeOfMotionCell{1} simOrReal];
-
-			figure('Units','pixels', 'Position',[200 200, 560 375]);
-			ax = gobjects(2,1); h = gobjects(2,numel(typeOfMotionCell));
-			for typeOfMotionInd = 1:numel(typeOfMotionCell)
-				typeOfMotion = typeOfMotionCell{typeOfMotionInd};
-				[~,Nind] = find(experimentsStruct.(typeOfMotion).N==N);
-
-				% Compute MOTA and numSurvivors stats (mean, std)
-				[MOTAmean, MOTAstd, numSurvivorsMean, numSurvivorsStd] = computeMotaAndSurvivalStats(experimentsStruct, typeOfMotion);
-				t = (0:size(numSurvivorsMean,2)-1) / numWindowsPerSecond;
-
-				% Plot MOTA
-				ax(1) = subplot(2,1,1); hold on;
-				h(1,typeOfMotionInd) = errorbar(t, MOTAmean(Nind,:), MOTAstd(Nind,:), 'LineWidth',lWidthErr);
-				plot(t, MOTAmean(Nind,:), 'LineWidth',lWidth, 'Color',get(h(1,typeOfMotionInd),'Color'));
-				xlim([0,tEnd]); ylim([0 100]); ylabel('MOTA (%)', 'FontSize',fSizeLabels+1);
-
-				% Plot survival rate
-				ax(2) = subplot(2,1,2); hold on;
-				h(2,typeOfMotionInd) = errorbar(t, numSurvivorsMean(Nind,:), numSurvivorsStd(Nind,:), 'LineWidth',lWidthErr);
-				plot(t, numSurvivorsMean(Nind,:), 'LineWidth',lWidth, 'Color',get(h(2,typeOfMotionInd),'Color'));
-				xlim([0,tEnd]); ylim([-0.05 1.05]); ylabel('Survival rate (%)', 'FontSize',fSizeLabels+1);
-			end
-			suplabel('Time (s)', 'x', ax(:), -0.01, 'FontSize',fSizeLabels);
-			set(ax(:), 'Box','on', 'FontSize',fSizeAxes);
-			l=legend(h(1,:), legendCell, 'Orientation','horizontal', 'FontSize',fSizeAxes); set(l, 'Units','normalized', 'Position',[0.17 0.494 0.7 0]);
-			saveFigToFile(['MOTAandSurvivalOverTimeForDifferentTypeOfActuation_' num2str(N) 'N_' simOrReal]);
-		end
-	end
-end
-
-%% Plot (simulated) MOTA and survivors vs TYPE OF MOTION over time
+%% Plot accuracy vs TYPE OF MOTION over time (evaluation of Matching only - no actuation yet)
 if true
+	tEnd = 20; intervalErrorBar = 1;
 	lWidth = 2; lWidthErr = 1; fSizeLabels = 17; fSizeAxes = 13.5;
-	N = 24; tEnd = 30;
-	for roomSizeCell = {'4x4x2.mat'}
-		roomSize = roomSizeCell{:};
-		processedResultsFileName = [simOutputFolderAndPrefix '_processed_' roomSize];
+	typeOfMotionCell = {'random', 'hovering', 'landed'};
+	legendCell = {'Random motion', 'Hovering', 'Landed'};
+	for i = 1:3
+		if i <= 2, N = 3; roomSize = '2x2x1.mat'; else, N = 24; roomSize = '4x4x2.mat'; end
+		if i <= 1, folderAndPrefix = realOutputFolderAndPrefix; else, folderAndPrefix = simOutputFolderAndPrefix; end
+		if isequal(folderAndPrefix, simOutputFolderAndPrefix), simOrReal = 'Sim'; else, simOrReal = 'Real'; end
+		processedResultsFileName = [folderAndPrefix '_processed_' roomSize];
 		load(processedResultsFileName);
-		typeOfMotionCell = {'random', 'hovering', 'landed'}; % fieldnames(experimentsStruct)';
-		legendCell = {'Random motion', 'Hovering', 'Landed'};
-		
-		figure('Units','pixels', 'Position',[200 200, 560 375]);
-		ax = gobjects(2,1); h = gobjects(2,numel(typeOfMotionCell));
+
+		figure('Units','pixels', 'Position',[200 200, 560 200]); hold on;
+		h = gobjects(1,numel(typeOfMotionCell));
 		for typeOfMotionInd = 1:numel(typeOfMotionCell)
 			typeOfMotion = typeOfMotionCell{typeOfMotionInd};
 			[~,Nind] = find(experimentsStruct.(typeOfMotion).N==N);
-			
-			% Compute MOTA and numSurvivors stats (mean, std)
-			[MOTAmean, MOTAstd, numSurvivorsMean, numSurvivorsStd] = computeMotaAndSurvivalStats(experimentsStruct, typeOfMotion);
+
+			% Compute accuracy and numSurvivors stats (mean, std)
+			[MOTAmean, MOTAstd, numSurvivorsMean, numSurvivorsStd] = computeMotaAndSurvivalStats(experimentsStruct, typeOfMotion, intervalErrorBar);
 			t = (0:size(numSurvivorsMean,2)-1) / numWindowsPerSecond;
 
-			% Plot MOTA
-			ax(1) = subplot(2,1,1); hold on;
-			h(1,typeOfMotionInd) = errorbar(t, MOTAmean(Nind,:), MOTAstd(Nind,:), 'LineWidth',lWidthErr);
-			plot(t, MOTAmean(Nind,:), 'LineWidth',lWidth, 'Color',get(h(1,typeOfMotionInd),'Color'));
-			xlim([0,tEnd]); ylim([0 100]); ylabel('Accuracy (%)', 'FontSize',fSizeLabels+1);
-			
-			% Plot survival rate
-			ax(2) = subplot(2,1,2); hold on;
-			h(2,typeOfMotionInd) = errorbar(t, numSurvivorsMean(Nind,:), numSurvivorsStd(Nind,:), 'LineWidth',lWidthErr);
-			plot(t, numSurvivorsMean(Nind,:), 'LineWidth',lWidth, 'Color',get(h(2,typeOfMotionInd),'Color'));
-			xlim([0,tEnd]); ylim([-0.05 1.05]); ylabel('Survival rate (%)', 'FontSize',fSizeLabels+1);
+			h(typeOfMotionInd) = errorbar(t, MOTAmean(Nind,:), MOTAstd(Nind,:), 'LineWidth',lWidthErr);
+			plot(t, MOTAmean(Nind,:), 'LineWidth',lWidth, 'Color',get(h(typeOfMotionInd),'Color'));
 		end
-		suplabel('Time (s)', 'x', ax(:), -0.01, 'FontSize',fSizeLabels);
-		set(ax(:), 'Box','on', 'FontSize',fSizeAxes);
-		l=legend(h(1,:), legendCell, 'Orientation','horizontal', 'FontSize',fSizeAxes); set(l, 'Units','normalized', 'Position',[0.17 0.494 0.7 0]);
-		saveFigToFile(['AccuracyAndSurvivalOverTimeForDifferentTypeOfMotion_' num2str(N) 'N']);
+		xlim([0,tEnd]); ylim([0 100]);
+		xlabel('Time (s)', 'FontSize',fSizeLabels); ylabel('Accuracy (%)', 'FontSize',fSizeLabels+1);
+		set(gca, 'Box','on', 'FontSize',fSizeAxes);
+		l=legend(h, legendCell, 'FontSize',fSizeAxes, 'Location','NorthEast');% set(l, 'Units','normalized', 'Position',[0.17 0.494 0.7 0]);
+		saveFigToFile(['AccuracyOverTimeForDifferentTypeOfMotion_' num2str(N) 'N_' simOrReal]);
+	end
+end
+
+%% Plot accuracy and survival rate vs TYPE OF MOTION over time (actuation)
+if true
+	tEnd = 20; intervalErrorBar = 2;
+	for i = 1:3
+		if i <= 2, N = 3; roomSize = '2x2x1.mat'; else, N = 24; roomSize = '4x4x2.mat'; end
+		if i <= 1, folderAndPrefix = realOutputFolderAndPrefix; else, folderAndPrefix = simOutputFolderAndPrefix; end
+		if isequal(folderAndPrefix, simOutputFolderAndPrefix), simOrReal = 'Sim'; else, simOrReal = 'Real'; end
+
+		processedResultsFileName = [folderAndPrefix '_processed_' roomSize];
+		load(processedResultsFileName);
+		typeOfMotionCell = {'random', 'oneAtATime', 'ours'};
+		legendCell = {'Random', 'One-by-one', '\textit{IDrone} (ours)'};
+		typeOfMotionCell{3} = [typeOfMotionCell{3} simOrReal];
+
+		plotAccuracyAndSurvivorVsTypeOfMotion(experimentsStruct, typeOfMotionCell, legendCell, N, numWindowsPerSecond, tEnd, intervalErrorBar);
+		saveFigToFile(['AccuracyAndSurvivalOverTimeForDifferentTypeOfActuation_' num2str(N) 'N_' simOrReal]);
 	end
 end
 
 %% Plot MOTA and survivors vs DRONE DENSITY over time
 if true
-	lWidth = 2; lWidthErr = 1; fSizeLabels = 17; fSizeAxes = 13.5;
-	tEnd = 30;
-	for roomSizeCell = {'4x4x2.mat'} %{'5x5x2.5.mat', '15x10x3.mat'}
+	tEnd = 30; intervalErrorBar = 2;
+	for roomSizeCell = {'4x4x2.mat'}
 		roomSize = roomSizeCell{:};
 		processedResultsFileName = [simOutputFolderAndPrefix '_processed_' roomSize];
 		load(processedResultsFileName);
@@ -379,31 +342,8 @@ if true
 
 		for typeOfMotionInd = 1:numel(typeOfMotionCell)
 			typeOfMotion = typeOfMotionCell{typeOfMotionInd};
-			
-			figure('Units','pixels', 'Position',[200 200, 560 375]);
-			ax = gobjects(2,1); h = gobjects(2,numel(experimentsStruct.(typeOfMotion).N));
 
-			% Compute MOTA and numSurvivors stats (mean, std)
-			[MOTAmean, MOTAstd, numSurvivorsMean, numSurvivorsStd] = computeMotaAndSurvivalStats(experimentsStruct, typeOfMotion);
-			t = (0:size(numSurvivorsMean,2)-1) / numWindowsPerSecond;
-
-			for Nind = 1:numel(experimentsStruct.(typeOfMotion).N)
-				% Plot MOTA
-				ax(1) = subplot(2,1,1); hold on;
-				h(1,Nind) = errorbar(t, MOTAmean(Nind,:), MOTAstd(Nind,:), 'LineWidth',lWidthErr);
-				plot(t, MOTAmean(Nind,:), 'LineWidth',lWidth, 'Color',get(h(1,Nind),'Color'));
-				xlim([0,tEnd]); ylim([0 100]); ylabel('Accuracy (%)', 'FontSize',fSizeLabels+1);
-
-				% Plot survival rate
-				ax(2) = subplot(2,1,2); hold on;
-				h(2,Nind) = errorbar(t, numSurvivorsMean(Nind,:), numSurvivorsStd(Nind,:), 'LineWidth',lWidthErr);
-				plot(t, numSurvivorsMean(Nind,:), 'LineWidth',lWidth, 'Color',get(h(2,Nind),'Color'));
-				xlim([0,tEnd]); ylim([-0.05 1.05]); ylabel('Survival rate (%)', 'FontSize',fSizeLabels+1);
-			end
-
-			suplabel('Time (s)', 'x', ax(:), -0.01, 'FontSize',fSizeLabels);
-			set(ax(:), 'Box','on', 'FontSize',fSizeAxes);
-			l=legend(h(1,:), cellstr(strcat('N=',num2str((experimentsStruct.(typeOfMotion).N)'))), 'Orientation','horizontal', 'FontSize',fSizeAxes); set(l, 'Units','normalized', 'Position',[0.17 0.494 0.7 0]);
+			plotAccuracyAndSurvivorVsN(experimentsStruct, typeOfMotion, numWindowsPerSecond, tEnd, intervalErrorBar);
 			saveFigToFile(['AccuracyAndSurvivalOverTimeForDifferentN_' typeOfMotion]);
 		end
 	end
