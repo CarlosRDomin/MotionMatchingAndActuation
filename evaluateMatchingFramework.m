@@ -17,45 +17,43 @@ frameworkWinSize = deltaT*spotterCam.fps; iW=1;
 
 normalizationByRowAndColumn = 0; % Regular Bayesian normalization (divide each cell by the sum of its row)
 sigmaNoiseCam = 0.05;			% m, noise in camera's position estimation
-sigmaNoiseMotion = 0.04*deltaT;	% m/s2, error in each UAV's acceleration while performing a motion command
+sigmaNoiseMotion = 0.075*deltaT;	% m/s2, error in each UAV's acceleration while performing a motion command
 sigmaNoiseAccel = 0.25;			% m/s2, noise in IMU's accelerometer data
 sigmaLikelihood = 1;
 derivFiltOrder = 2; derivFiltHalfWinSize = 15;
-typeOfExperiment = 'Simulation';
+typeOfExperiment = 'Actuation';
 repsPerExperiment = 20;
 
 PLOT_EXPERIMENT = false;
-SAVE_EXPERIMENT = false;
+SAVE_EXPERIMENT = true;
 
-for roomDimensionsScale = 2 %[1 2]
+for roomDimensionsScale = 1 %[1 2]
 	roomDimensions = roomDimensionsScale * [2, 2, 1]; % roomDimensionsCell{:};
 	spotterCam.pos = [roomDimensions(1) + (roomDimensions(1)/2) / tan(spotterCam.FOV/2), roomDimensions(2)/2, roomDimensions(3)/2]; % Need FOV to determine pos
 	% Old way of positioning the camera (looking at y-axis): spotterCam.pos = [roomDimensions(1)/2, -(roomDimensions(1)/2) / tan(spotterCam.FOV/2), roomDimensions(3)/2]; % Need FOV to determine pos
 
 	if roomDimensionsScale == 2
-		Narray = ceil(24./(2:-1:1));
+		Narray = ceil(24./(5:-1:1));
 	else
 		Narray = 3;
 	end
 	for N = Narray
 		M = N;
 		for sigmaLikelihood = 1 %[0.05:0.05:0.2 0.25:0.25:1.5]
-			for typeOfMotionCell = {'oursSim', } %{'hovering', 'landed', 'oneAtATime', 'lowestRisky', 'oursSim'}
+			for typeOfMotionCell = {'oursReal', } %{'hovering', 'landed', 'oneAtATime', 'lowestRisky', 'oursSim'}
 				typeOfMotion = typeOfMotionCell{:};
 				if startsWith(typeOfMotion,'ours', 'IgnoreCase',true)
 					sigmaNoiseMotion = 0.1*deltaT;	% m/s2, error in each UAV's acceleration while performing a motion command
-					ourActuationNumLowRiskIterations = 3;		% Move all in the same dir, diff. amplitude during 5 iterations, then optimally
-					ourActuationNumBestAssignments = 4; %max(1, min(4, ceil(N/3)));	% Number of most likely assignments to consider when generating command
-					paramsOurActuation = {'ourActuationNumLowRiskIterations', 'ourActuationNumBestAssignments'};
+					ourActuationNumLowRiskIterations = 5;		% Move all in the same dir, diff. amplitude during 5 iterations, then optimally
+					ourActuationNumBestAssignments = max(3, ceil(N/2)); %max(1, min(4, ceil(N/3)));	% Number of most likely assignments to consider when generating command
+					ourActuationStopLowRiskCriteria = 0.5;		% Stop lowRisk mode when P(assignment #ourActuationNumBestAssignments) < ourActuationStopLowRiskCriteria*P(assignment #1)
+					paramsOurActuation = {'ourActuationNumLowRiskIterations', 'ourActuationNumBestAssignments', 'ourActuationStopLowRiskCriteria'};
 					if strcmpi(typeOfMotion, 'oursReal')
 						repsPerExperiment = 10;
 						tMin = 20;
 						tMax = 20;
 						movingAvgFiltWinSize = 30;
 					else
-% 						if N>20
-% 							ourActuationNumLowRiskIterations = 10;
-% 						end
 						tMin = 30;
 						tMax = 30;
 						movingAvgFiltWinSize = 2;
@@ -180,16 +178,20 @@ for roomDimensionsScale = 2 %[1 2]
 								command = reshape([maxRho*((1:N)==mod(currT/deltaT, N)+1); repmat([dirTheta; dirPhi], 1,N)], [],1);
 							elseif startsWith(typeOfMotion,'ours', 'IgnoreCase',true)
 								runningPriorTemp = runningPosterior(:,:,currTind,iW);
-								% if ~all(runningPriorTemp(sub2ind(size(runningPriorTemp), (1:N)',assignedMatch(:,currTind,iW))) > 1.5/N)
+								[rhoBounds, dirTheta, dirPhi] = estimateLowestRiskyDirOfMotion(reshape(posUAVcam(:,currTind,:), [],size(posUAVcam,3)), roomDimensions, threshRisk, deltaP);
+								
+								%sortedPriors = sort(runningPriorTemp,2);
+								%if all(sortedPriors(:,end-1) > ourActuationStopLowRiskCriteria*sortedPriors(:,end))
+								
+								assignmentList = computeNBestAssignments(ourActuationNumBestAssignments, runningPriorTemp, -log(1e-30),-log(1e-2));
+								%P_assignment_1 = prod(runningPriorTemp(sub2ind(size(runningPriorTemp), assignmentList(1).matches(:,1),assignmentList(1).matches(:,2))));
+								%P_assignment_k = prod(runningPriorTemp(sub2ind(size(runningPriorTemp), assignmentList(ourActuationNumBestAssignments).matches(:,1),assignmentList(ourActuationNumBestAssignments).matches(:,2))));
+								%if P_assignment_k > ourActuationStopLowRiskCriteria*P_assignment_1 % Keep doing low risk until k-th assignment has lower prob than 0.1*top assignment
 								if currIter <= ourActuationNumLowRiskIterations
-									[rhoBounds, dirTheta, dirPhi] = estimateLowestRiskyDirOfMotion(reshape(posUAVcam(:,currTind,:), [],size(posUAVcam,3)), roomDimensions, threshRisk, deltaP);
 									command = reshape([sum(rhoBounds)*rand(1,N)-rhoBounds(2); repmat([dirTheta; dirPhi], 1,N)], [],1);	% All drones move with same dirTheta and dirPhi, random rhos (of up to maxRho)
 								else
 									P_total = 0;
 									expectedCommand = zeros(N,3);
-									assignmentList = computeNBestAssignments(ourActuationNumBestAssignments, runningPriorTemp, -log(1e-30),-log(1e-2));
-
-									[rhoBounds, dirTheta, dirPhi] = estimateLowestRiskyDirOfMotion(reshape(posUAVcam(:,currTind,:), [],size(posUAVcam,3)), roomDimensions, threshRisk, deltaP);
 									startingCommand = commandWithValidBounds(reshape([sum(rhoBounds)*rand(1,N)-rhoBounds(2); repmat([dirTheta; dirPhi], 1,N)], [],1));
 									
 									for i = 1:ourActuationNumBestAssignments
@@ -225,7 +227,20 @@ for roomDimensionsScale = 2 %[1 2]
 							end
 							
 							% Load logs
-							data = loadRealExperimentData(struct('datetime',{['iteration' num2str(currIter)]}, 'ch',['experiment' num2str(experimentRep)]), outputFolder(1:end-1), derivFiltOrder, 1+2*derivFiltHalfWinSize, movingAvgFiltWinSize);
+							while true
+								try
+									data = loadRealExperimentData(struct('datetime',{['iteration' num2str(currIter)]}, 'ch',['experiment' num2str(experimentRep)]), outputFolder(1:end-1), derivFiltOrder, 1+2*derivFiltHalfWinSize, movingAvgFiltWinSize);
+									if isempty(find(data.drone_id.measured == N, 1)) % Check that the data was correctly recorded (sometimes there's errors before the iteration ends)
+										dispImproved('ERROR, wrong data collected, recollect this iteration');
+										pause(5);
+									else % All good :)
+										break;
+									end
+								catch
+									pause(5);
+								end
+							end
+							
 							for n = 1:N
 								ind_start = find(data.drone_id.measured == n, 1);
 								ind_drone_data = ind_start:(ind_start + frameworkWinSize - 1);
