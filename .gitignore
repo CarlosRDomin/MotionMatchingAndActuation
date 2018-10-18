@@ -4,3 +4,4 @@ figures/
 *.mat
 *.key
 *.mp4
+*.DS_Store

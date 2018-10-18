@@ -10,7 +10,7 @@ simOutputFolder = [fileparts(mfilename('fullpath')) '/data/Simulations/'];
 realOutputFolderAndPrefix = [realOutputFolder 'Real'];
 simOutputFolderAndPrefix = [simOutputFolder 'Simulation'];
 skipPreProcess = true; % Whether or not to "generate" by "overlapping" real experiment data
-skipProcess = true; % Whether or not to (re)process all the experiment data
+skipProcess = false; % Whether or not to (re)process all the experiment data
 
 % Constants
 confidenceThresholds = 0:0.025:1;
@@ -22,9 +22,9 @@ maxTimeStepsMOTA = floor(150*numWindowsPerSecond); % Up to 300s
 %% Pre-Process real experiments (combine multiple drones into single experiment)
 if ~skipPreProcess
 	% Ours
-	for expInd = 1:5
+	for expInd = 2:3 %1:5
 		aux = load([realOutputFolder 'Ours/experiment' num2str(expInd) '/Actuation_oursReal_3N_2x2x1.mat']);
-		if expInd == 1
+		if ~exist('paramStruct','var')
 			paramStruct = aux.paramStruct;
 			variableStruct = aux.variableStruct;
 		else
@@ -36,7 +36,7 @@ if ~skipPreProcess
 	dispImproved(sprintf('Saved pre-processed experiment results as "%s"!\n', preProcessedResultsFileName), 'keepthis');
 
 	% All but ours
-	paramStruct = rmfield(paramStruct, {'ourActuationNumLowRiskIterations', 'ourActuationNumBestAssignments'});
+	paramStruct = rmfield(paramStruct, {'ourActuationNumLowRiskIterations', 'ourActuationNumBestAssignments', 'ourActuationStopLowRiskCriteria'});
 	paramStruct.sigmaNoiseMotion = 0.04;
 	experimentAssignments = [1:3; 4:6; 7:9; 10:12; 13:15; 1:5:15; 2:5:15; 3:5:15; 4:5:15; 5:5:15];
 	for typeOfMotionCell = {'Random', 'Hovering', 'Landed', 'OneAtATime'}
@@ -194,10 +194,19 @@ if ~skipProcess
 						survivingDrones = true(N, actualTimeIndsMOTA(end));
 						avoidDiagDist = threshCollision.*eye(N); % Use this helper matrix to avoid finding drone crashes of a drone with itself
 						prevSurvivors = true(N,1);
+						deadDronesW = [];
 						for tInd = 1:actualTimeIndsMOTA(end)
-							distAmongDrones(:,tInd) = pdist(reshape(expData.variableStruct(experimentInd).posUAVgt(:,tInd,:), [],size(expData.variableStruct(experimentInd).posUAVgt,3)));
+							reshapedPos = reshape(expData.variableStruct(experimentInd).posUAVgt(:,tInd,:), [],size(expData.variableStruct(experimentInd).posUAVgt,3));	% Mx3
+							distAmongDrones(:,tInd) = pdist(reshapedPos);
 							[deadDronesI, deadDronesJ] = find((squareform(distAmongDrones(:,tInd)) + avoidDiagDist) < threshCollision);
-							shouldDie = unique([deadDronesI; deadDronesJ]);
+							
+							if isequal(folderAndPrefix, simOutputFolderAndPrefix)  % Only account for walls in simulation
+								distToWalls = [reshapedPos - zeros(size(reshapedPos)), repmat(expData.paramStruct.roomDimensions, size(reshapedPos,1),1) - reshapedPos];
+								distToWalls(:,3) = [];	% Ignore floor crashes
+								deadDronesW = find(any(distToWalls < 0.7*threshCollision, 2));
+							end
+							
+							shouldDie = unique([deadDronesI; deadDronesJ; deadDronesW]);
 							shouldDie(prevSurvivors(shouldDie)==false) = []; % Dead drones can't "kill" other drones
 							prevSurvivors(shouldDie) = 0;
 							survivingDrones(:,tInd) = prevSurvivors;
@@ -278,6 +287,8 @@ if false
 	saveFigToFile('iterativeUpdate');
 end
 
+
+
 %% Plot accuracy vs TYPE OF MOTION over time (evaluation of Matching only - no actuation yet)
 if true
 	tEnd = 20; intervalErrorBar = 1;
@@ -348,6 +359,8 @@ if true
 		end
 	end
 end
+
+
 
 %% Plot posterior vs confidence
 if false

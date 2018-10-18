@@ -1,6 +1,7 @@
 function generateDronesInRoomVideo(videoName, posUAVgtOrExperimentInfo, roomDimensions, spotterCam, saveVideo)
 	if isempty(videoName), videoName = 'videoSim.mp4'; end
 	if isstruct(posUAVgtOrExperimentInfo) % Allow to visualize data directly from a simulation *.mat
+		if isempty(videoName), [~,videoName] = fileparts(posUAVgtOrExperimentInfo.experimentMatFileName); end % Default output filename based on simulation filename
 		[expData, experimentInd] = loadSimulationExperimentData(posUAVgtOrExperimentInfo); % Load simulation data
 		posUAVgt = expData.variableStruct(experimentInd).posUAVgt; % Populate fields from the data
 		roomDimensions = expData.paramStruct.roomDimensions;
